@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Build output
+dist/
+
+# SQLite databases
+*.db
+*.sqlite
+
+# OS generated files
+.DS_Store
+
+# Diagnostic scripts
+debug_scraper_fields.ts
+test_musicbrainz.ts
+check_db.ts
