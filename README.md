@@ -67,13 +67,14 @@ GUILD_ID=your_guild_id_here (optional, for instant slash command updates)
 -   [ ] Set the **General** review notification channel using `/setchannel type:general`.
 -   [ ] Set specific notification channels for curated lists using `/setchannel type:1001` or `/setchannel type:latam`.
 -   [ ] Ensure the bot has access to those specific channels.
--   [ ] Link user accounts using `/link username:<rc_name>`.
+-   [ ] Add Record Club usernames to the tracking list using `/link username:<rc_name>`.
 
-### 5. User Linking & Global Scope
+### 5. User Tracking & Global Scope
 
--   **One-Time Global Link**: Users only need to link their Record Club account **once**. The bot stores this link globally in the database.
--   **No Per-Channel Linking**: Once a user is linked, their reviews will automatically be posted to all designated channels (General, 1001, or Latam) as configured by the admin.
--   **Admin Capability**: Admins can link accounts for other users using `/link username:<rc_name> user:<@discord_user>`.
+-   **Pure Username Tracking**: Reviews are tracked based on Record Club usernames. The bot automatically fetches the reviewer's name and avatar directly from Record Club for the embed headers.
+-   **No Member Tagging Required**: Admins can register as many usernames as they like using `/link username:<rc_name>`. You no longer need to specify which Discord user they belong to.
+-   **One-Time Setup**: Once a username is added, their reviews will automatically be posted to all designated channels (General, 1001, or Latam) as configured by the admin.
+-   **Unlinking**: To stop tracking a user, run `/unlink username:<rc_name>`.
 
 ---
 

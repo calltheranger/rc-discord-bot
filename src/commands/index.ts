@@ -8,18 +8,18 @@ const commands = [
     // ... (rest of commands unchanged)
     new SlashCommandBuilder()
         .setName('link')
-        .setDescription('Link a Discord account to a Record Club username')
+        .setDescription('Add a Record Club username to the tracking list')
         .addStringOption(option =>
             option.setName('username')
                 .setDescription('The Record Club username')
-                .setRequired(true))
-        .addUserOption(option =>
-            option.setName('user')
-                .setDescription('The Discord user to link (defaults to you)')
-                .setRequired(false)),
+                .setRequired(true)),
     new SlashCommandBuilder()
         .setName('unlink')
-        .setDescription('Unlink your Record Club username'),
+        .setDescription('Remove a Record Club username from the tracking list')
+        .addStringOption(option =>
+            option.setName('username')
+                .setDescription('The Record Club username')
+                .setRequired(true)),
     new SlashCommandBuilder()
         .setName('setchannel')
         .setDescription('Set the channel for review notifications')
@@ -108,25 +108,30 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
 
     if (commandName === 'link') {
         const username = interaction.options.getString('username', true);
-        const targetUser = interaction.options.getUser('user') || interaction.user;
         await interaction.deferReply();
         const review = await scraper.getLatestReview(username);
 
         if (review) {
             database.getDb().prepare(`
-            INSERT OR REPLACE INTO users (discord_id, record_club_username, last_review_url, last_checked_at)
+            INSERT OR REPLACE INTO users (record_club_username, discord_id, last_review_url, last_checked_at)
             VALUES (?, ?, ?, ?)
-        `).run(targetUser.id, username, review.reviewUrl, Date.now());
+        `).run(username, interaction.user.id, review.reviewUrl, Date.now());
 
-            await interaction.editReply(`Linked **${username}** to <@${targetUser.id}>! I'll notify when new reviews drop.`);
+            await interaction.editReply(`Now tracking **${username}**! Reviews will be posted automatically.`);
         } else {
             await interaction.editReply(`Could not find reviews for **${username}**. Please check the username on Record Club.`);
         }
     }
 
     if (commandName === 'unlink') {
-        database.getDb().prepare('DELETE FROM users WHERE discord_id = ?').run(interaction.user.id);
-        await interaction.reply('Unlinked your Record Club account.');
+        const username = interaction.options.getString('username', true);
+        const result = database.getDb().prepare('DELETE FROM users WHERE record_club_username = ?').run(username);
+
+        if (result.changes > 0) {
+            await interaction.reply(`Stopped tracking **${username}**.`);
+        } else {
+            await interaction.reply(`**${username}** was not in the tracking list.`);
+        }
     }
 
     if (commandName === 'setchannel') {
@@ -183,8 +188,14 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
             if (user) {
                 username = user.record_club_username;
             } else {
-                await interaction.editReply('You are not linked! Use `/link <username>` or provide a username.');
-                return;
+                // Return the very first user in the system if this user isn't specificially linked
+                const firstUser = database.getDb().prepare('SELECT record_club_username FROM users LIMIT 1').get() as { record_club_username: string };
+                if (firstUser) {
+                    username = firstUser.record_club_username;
+                } else {
+                    await interaction.editReply('No users are being tracked! Use `/link <username>` to get started.');
+                    return;
+                }
             }
         }
 
@@ -199,18 +210,17 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
         const source = getAlbumSource(review.albumTitle, review.artistName);
 
         let color = 0x0099FF; // Blue (Default)
-        let footerText = 'Record Club Review';
+        let footerText = '💿 Record Club Review';
 
         if (source === '1001') {
             color = 0xFFD700; // Gold
-            footerText = '🏆 1001 Albums List';
+            footerText = '📀 1001 Albums List';
         } else if (source === 'latam') {
             color = 0xFF5733; // Orange-Red
             footerText = '🌎 600 Discos Latinoamérica';
         }
 
         const separator1 = '┈┈┈┈┈';
-        const separator2 = '┈'.repeat(footerText.length);
 
         const embed = new EmbedBuilder()
             .setColor(color)
@@ -218,9 +228,9 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
                 name: `${review.username} reviewed...`,
                 iconURL: review.userAvatar
             })
-            .setTitle(`${review.albumTitle} by ${review.artistName}${yearStr}`)
+            .setTitle(`${review.artistName}\n**${review.albumTitle}**${yearStr}`)
             .setURL(review.reviewUrl)
-            .setDescription(`${stars}\n${separator1}\n${review.reviewText || 'No review text.'}\n${separator2}`)
+            .setDescription(`${stars}\n${separator1}\n${review.reviewText || 'No review text.'}`)
             .setFooter({ text: footerText })
             .setTimestamp(review.timestamp);
 

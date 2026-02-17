@@ -65,12 +65,12 @@ export const startPolling = (client: Client) => {
                     for (const setting of guildSettings) {
                         let targetChannelId = setting.notification_channel_id; // Default
                         let color = 0x0099FF; // Blue
-                        let footerText = 'Record Club Review';
+                        let footerText = '💿 Record Club Review';
 
                         if (source === '1001') {
                             if (setting.channel_1001_id) targetChannelId = setting.channel_1001_id;
                             color = 0xFFD700; // Gold
-                            footerText = '🏆 1001 Albums List';
+                            footerText = '📀 1001 Albums List';
                         } else if (source === 'latam') {
                             if (setting.channel_latam_id) targetChannelId = setting.channel_latam_id;
                             else if (setting.channel_1001_id) targetChannelId = setting.channel_1001_id; // Fallback to 1001 channel if user implied "Same channel"
@@ -85,7 +85,6 @@ export const startPolling = (client: Client) => {
                             const stars = formatStars(latestReview.rating);
                             const yearStr = latestReview.releaseYear ? ` (${latestReview.releaseYear})` : '';
                             const separator1 = '┈┈┈┈┈';
-                            const separator2 = '┈'.repeat(footerText.length);
 
                             const embed = new EmbedBuilder()
                                 .setColor(color)
@@ -93,9 +92,9 @@ export const startPolling = (client: Client) => {
                                     name: `${latestReview.username} reviewed...`,
                                     iconURL: latestReview.userAvatar
                                 })
-                                .setTitle(`${latestReview.albumTitle} by ${latestReview.artistName}${yearStr}`)
+                                .setTitle(`${latestReview.artistName}\n**${latestReview.albumTitle}**${yearStr}`)
                                 .setURL(latestReview.reviewUrl)
-                                .setDescription(`${stars}\n${separator1}\n${latestReview.reviewText || 'No review text.'}\n${separator2}`)
+                                .setDescription(`${stars}\n${separator1}\n${latestReview.reviewText || 'No review text.'}`)
                                 .setFooter({ text: footerText })
                                 .setTimestamp(latestReview.timestamp);
 

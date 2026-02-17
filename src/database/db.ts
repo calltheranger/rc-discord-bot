@@ -6,8 +6,8 @@ export const database = {
   init: () => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS users (
-        discord_id TEXT PRIMARY KEY,
-        record_club_username TEXT NOT NULL,
+        record_club_username TEXT PRIMARY KEY,
+        discord_id TEXT,
         last_review_url TEXT,
         last_checked_at INTEGER
       );
