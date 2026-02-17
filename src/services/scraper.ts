@@ -8,19 +8,19 @@ puppeteer.use(StealthPlugin());
 
 const BASE_URL = 'https://record.club';
 
-async function getYearFromMusicBrainz(artist: string, album: string): Promise<string | undefined> {
+export async function getYearFromMusicBrainz(artist: string, album: string): Promise<string | undefined> {
     try {
         const query = `release:"${album}" AND artist:"${artist}"`;
         const url = `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(query)}&fmt=json`;
 
         console.log(`Querying MusicBrainz fallback: ${url}`);
         const response = await axios.get(url, {
-            headers: { 'User-Agent': 'RecordClubBot/1.0.0 ( contact@example.com )' },
+            headers: { 'User-Agent': 'RecordClubBot/1.0.0 ( dan@example.com )' },
             timeout: 5000
         });
 
+        // MusicBrainz allows 1 request per second. We should respect this in the calling code.
         if (response.data && response.data.releases && response.data.releases.length > 0) {
-            // Filter releases that have a date and sort to find the earliest (original release)
             const releases = response.data.releases.filter((r: any) => r.date);
             releases.sort((a: any, b: any) => a.date.localeCompare(b.date));
 
@@ -33,14 +33,18 @@ async function getYearFromMusicBrainz(artist: string, album: string): Promise<st
                 }
             }
         }
-    } catch (error) {
-        console.error('MusicBrainz lookup failed:', error);
+    } catch (error: any) {
+        if (error.response?.status === 503) {
+            console.warn('MusicBrainz rate limited (503). Skipping year for this item.');
+        } else {
+            console.error('MusicBrainz lookup failed:', error.message);
+        }
     }
     return undefined;
 }
 
 export const scraper = {
-    getLatestReview: async (username: string): Promise<Review | null> => {
+    getRecentReviews: async (username: string): Promise<Review[]> => {
         let browser;
         try {
             console.log(`Launching browser to scrape ${username}...`);
@@ -49,187 +53,134 @@ export const scraper = {
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
             });
             const page = await browser.newPage();
-
-            // Set a realistic viewport
             await page.setViewport({ width: 1280, height: 800 });
 
             const url = `${BASE_URL}/${username}/reviews`;
             console.log(`Navigating to ${url}...`);
 
-            // Go to URL and wait for network idle to ensure Cloudflare checks trigger/pass
-            await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+            // Use a more resilient navigation strategy with retries
+            let attempts = 0;
+            while (attempts < 3) {
+                try {
+                    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    break;
+                } catch (e: any) {
+                    attempts++;
+                    if (attempts >= 3) throw e;
+                    console.warn(`Navigation attempt ${attempts} failed for ${username}, retrying...`);
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+            }
 
-            // Wait for the review teaser to be visible
-            await page.waitForSelector('article.review-teaser', { timeout: 10000 }).catch(() => { });
+            // Wait specifically for the content we need
+            await page.waitForSelector('article.review-teaser', { timeout: 15000 }).catch(() => { });
 
-            // Scroll a bit to trigger lazy loading
-            await page.evaluate(() => window.scrollBy(0, 500));
+            // Give it a moment to stabilize
+            await new Promise(r => setTimeout(r, 2000));
+
+            // Scroll to ensure more reviews are loaded (Record Club uses infinite scroll/lazy loading)
+            await page.evaluate(() => window.scrollBy(0, 1000));
             await new Promise(r => setTimeout(r, 1000));
 
-            const reviewData = await page.evaluate((baseUrl) => {
-                const firstReview = document.querySelector('article.review-teaser');
-                if (!firstReview) return null;
+            const reviewsRaw = await page.evaluate((baseUrl) => {
+                const teasers = Array.from(document.querySelectorAll('article.review-teaser'));
 
-                // Extract details
-                const albumTitleElement = firstReview.querySelector('a.line-clamp-2, a.title');
-                const albumTitle = albumTitleElement?.textContent?.trim() || '';
-                const albumUrlRelative = albumTitleElement?.getAttribute('href');
-                const albumUrl = albumUrlRelative ? (albumUrlRelative.startsWith('http') ? albumUrlRelative : `${baseUrl}${albumUrlRelative}`) : '';
+                return teasers.map(teaser => {
+                    const albumTitleElement = teaser.querySelector('a.line-clamp-2, a.title');
+                    const albumTitle = albumTitleElement?.textContent?.trim() || '';
+                    const albumUrlRelative = albumTitleElement?.getAttribute('href');
+                    const albumUrl = albumUrlRelative ? (albumUrlRelative.startsWith('http') ? albumUrlRelative : `${baseUrl}${albumUrlRelative}`) : '';
 
-                const reviewLinkRelative = firstReview.querySelector('a.review-teaser-date')?.getAttribute('href');
-                const reviewUrl = reviewLinkRelative ? (reviewLinkRelative.startsWith('http') ? reviewLinkRelative : `${baseUrl}${reviewLinkRelative}`) : '';
+                    const reviewLinkRelative = teaser.querySelector('a.review-teaser-date')?.getAttribute('href');
+                    const reviewUrl = reviewLinkRelative ? (reviewLinkRelative.startsWith('http') ? reviewLinkRelative : `${baseUrl}${reviewLinkRelative}`) : '';
 
-                // Artist Name
-                const artistLink = firstReview.querySelector('a[href^="/artists/"]');
-                let artistName = artistLink?.textContent?.trim();
-                if (!artistName) {
-                    const headings = firstReview.querySelector('h3.release-headings');
-                    artistName = headings?.textContent?.replace(albumTitle, '').trim();
-                }
-                if (!artistName) artistName = 'Unknown Artist';
-
-                // Rating
-                const ratingValue = firstReview.querySelector('[itemprop="ratingValue"]')?.getAttribute('content') ||
-                    firstReview.querySelector('[itemprop="ratingValue"]')?.textContent?.trim();
-
-                let rating = ratingValue;
-                if (!rating) {
-                    const visuallyHidden = firstReview.querySelector('.rating .visuallyhidden');
-                    const match = visuallyHidden?.textContent?.match(/([\d.]+)/);
-                    if (match) rating = match[1];
-                }
-
-                // Timestamp
-                const timeElement = firstReview.querySelector('time');
-                const timestampStr = timeElement?.getAttribute('datetime');
-                const timestamp = timestampStr ? new Date(timestampStr).getTime() : Date.now();
-
-                // Review Text
-                const bodyEl = firstReview.querySelector('.review-body, .review-teaser-body, .review-teaser-content, .review-teaser-excerpt');
-                let reviewText = bodyEl?.textContent?.trim() || '';
-                if (reviewText.length > 500) {
-                    reviewText = reviewText.substring(0, 497) + '...';
-                }
-
-                // Cover Image
-                const imgEl = firstReview.querySelector('.release-artwork img') as HTMLImageElement;
-                let imageUrl = imgEl?.src || '';
-                if (!imageUrl || imageUrl.includes('placeholder')) {
-                    const artworkInner = firstReview.querySelector('.release-artwork-inner');
-                    if (artworkInner) {
-                        const style = window.getComputedStyle(artworkInner).backgroundImage;
-                        const match = style.match(/url\(["']?([^"']+)["']?\)/);
-                        if (match) imageUrl = match[1];
+                    const artistLink = teaser.querySelector('a[href^="/artists/"]');
+                    let artistName = artistLink?.textContent?.trim();
+                    if (!artistName) {
+                        const headings = teaser.querySelector('h3.release-headings');
+                        artistName = headings?.textContent?.replace(albumTitle, '').trim();
                     }
-                }
+                    if (!artistName) artistName = 'Unknown Artist';
 
-                // User Avatar
-                const headerAvatar = document.querySelector('.user-profile-header .avatar');
-                const teaserAvatar = firstReview.querySelector('.avatar');
-                const avatarEl = headerAvatar || teaserAvatar;
+                    const ratingValue = teaser.querySelector('[itemprop="ratingValue"]')?.getAttribute('content') ||
+                        teaser.querySelector('[itemprop="ratingValue"]')?.textContent?.trim();
+                    let rating = ratingValue || 'No rating';
 
-                let userAvatar = '';
-                if (avatarEl) {
-                    const avatarImg = avatarEl.querySelector('img');
-                    if (avatarImg?.src) {
-                        userAvatar = avatarImg.src;
-                    } else {
-                        const style = window.getComputedStyle(avatarEl).backgroundImage;
-                        const match = style.match(/url\(["']?([^"']+)["']?\)/);
-                        if (match) userAvatar = match[1];
-                    }
-                }
+                    const timeElement = teaser.querySelector('time');
+                    const timestampStr = timeElement?.getAttribute('datetime');
+                    const timestamp = timestampStr ? new Date(timestampStr).getTime() : Date.now();
 
-                // Release Year (sometimes in teaser)
-                const releaseYearText = firstReview.querySelector('.release-year, .release-headings')?.textContent;
-                const yearMatch = releaseYearText?.match(/\b(19|20)\d{2}\b/);
-                const releaseYear = yearMatch ? yearMatch[0] : undefined;
+                    const bodyEl = teaser.querySelector('.review-body, .review-teaser-body, .review-teaser-content, .review-teaser-excerpt');
+                    let reviewText = bodyEl?.textContent?.trim() || '';
+                    if (reviewText.length > 500) reviewText = reviewText.substring(0, 497) + '...';
 
-                return {
-                    albumTitle,
-                    artistName,
-                    rating: rating || 'No rating',
-                    reviewText,
-                    reviewUrl,
-                    albumUrl,
-                    imageUrl,
-                    userAvatar,
-                    timestamp,
-                    releaseYear
-                };
-            }, BASE_URL);
-
-            if (!reviewData || !reviewData.reviewUrl) {
-                console.log('No review data or URL found.');
-                return null;
-            }
-
-            // Normalize absolute URLs
-            if (reviewData.imageUrl && !reviewData.imageUrl.startsWith('http')) reviewData.imageUrl = `${BASE_URL}${reviewData.imageUrl}`;
-            if (reviewData.userAvatar && !reviewData.userAvatar.startsWith('http')) reviewData.userAvatar = `${BASE_URL}${reviewData.userAvatar}`;
-
-            // Priority 1: Use year from teaser if found
-            let releaseYear = reviewData.releaseYear;
-
-            // Priority 2: Use MusicBrainz API (Very reliable fallback)
-            if (!releaseYear) {
-                console.log(`Year missing for ${reviewData.albumTitle}. Trying MusicBrainz...`);
-                releaseYear = await getYearFromMusicBrainz(reviewData.artistName, reviewData.albumTitle);
-            }
-
-            // Priority 3: Navigate to Record Club album page (Slowest fallback)
-            if (!releaseYear && reviewData.albumUrl) {
-                try {
-                    console.log(`Navigating to album page as last resort: ${reviewData.albumUrl}`);
-                    const albumPage = await browser.newPage();
-                    await albumPage.goto(reviewData.albumUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-
-                    releaseYear = await albumPage.evaluate(() => {
-                        const cleanYear = (text: string | null | undefined): string | undefined => {
-                            if (!text) return undefined;
-                            const match = text.match(/\b(19|20)\d{2}\b/);
-                            return match ? match[0] : undefined;
-                        };
-
-                        const yearEl = document.querySelector('.release-year');
-                        if (yearEl && yearEl.textContent?.trim()) return cleanYear(yearEl.textContent);
-
-                        const dateEl = document.querySelector('dl.release-details dd.date');
-                        if (dateEl && dateEl.textContent) return cleanYear(dateEl.textContent);
-
-                        const headings = document.querySelector('h1.release-headings, .release-headings');
-                        if (headings && headings.textContent) return cleanYear(headings.textContent);
-
-                        return cleanYear(document.title);
-                    });
-
-                    // Update Image if missing
-                    if (!reviewData.imageUrl || reviewData.imageUrl.includes('placeholder') || reviewData.imageUrl.includes('default')) {
-                        const pageImageUrl = await albumPage.evaluate(() => {
-                            const img = document.querySelector('.release-artwork img') as HTMLImageElement;
-                            if (img?.src) return img.src;
-                            return undefined;
-                        });
-                        if (pageImageUrl) {
-                            reviewData.imageUrl = pageImageUrl.startsWith('http') ? pageImageUrl : `${BASE_URL}${pageImageUrl}`;
+                    const imgEl = teaser.querySelector('.release-artwork img') as HTMLImageElement;
+                    let imageUrl = imgEl?.src || '';
+                    if (!imageUrl || imageUrl.includes('placeholder')) {
+                        const artworkInner = teaser.querySelector('.release-artwork-inner');
+                        if (artworkInner) {
+                            const style = window.getComputedStyle(artworkInner).backgroundImage;
+                            const match = style.match(/url\(["']?([^"']+)["']?\)/);
+                            if (match) imageUrl = match[1];
                         }
                     }
 
-                    await albumPage.close();
-                } catch (e) {
-                    console.error(`Failed to fetch album details from ${reviewData.albumUrl}:`, e);
-                }
+                    const teaserAvatar = teaser.querySelector('.avatar');
+                    const headerAvatar = document.querySelector('.user-profile-header .avatar');
+                    const avatarEl = teaserAvatar || headerAvatar;
+                    let userAvatar = '';
+                    if (avatarEl) {
+                        const avatarImg = avatarEl.querySelector('img');
+                        if (avatarImg?.src) userAvatar = avatarImg.src;
+                        else {
+                            const style = window.getComputedStyle(avatarEl).backgroundImage;
+                            const match = style.match(/url\(["']?([^"']+)["']?\)/);
+                            if (match) userAvatar = match[1];
+                        }
+                    }
+
+                    const releaseYearText = teaser.querySelector('.release-year, .release-headings')?.textContent;
+                    const yearMatch = releaseYearText?.match(/\b(19|20)\d{2}\b/);
+                    const releaseYear = yearMatch ? yearMatch[0] : undefined;
+
+                    return {
+                        albumTitle,
+                        artistName,
+                        rating,
+                        reviewText,
+                        reviewUrl,
+                        albumUrl,
+                        imageUrl,
+                        userAvatar,
+                        timestamp,
+                        releaseYear
+                    };
+                });
+            }, BASE_URL);
+
+            if (!reviewsRaw || reviewsRaw.length === 0) return [];
+
+            const reviews: Review[] = [];
+
+            // Process fallbacks for each review (Year and Images)
+            for (const data of reviewsRaw) {
+                if (!data.reviewUrl) continue;
+
+                // Normalize URLs
+                if (data.imageUrl && !data.imageUrl.startsWith('http')) data.imageUrl = `${BASE_URL}${data.imageUrl}`;
+                if (data.userAvatar && !data.userAvatar.startsWith('http')) data.userAvatar = `${BASE_URL}${data.userAvatar}`;
+
+                reviews.push({
+                    username,
+                    ...data
+                });
             }
 
-            return {
-                username,
-                ...reviewData,
-                releaseYear
-            };
+            return reviews;
 
         } catch (error) {
             console.error(`Error scraping ${username}:`, error);
-            return null;
+            return [];
         } finally {
             if (browser) await browser.close();
         }

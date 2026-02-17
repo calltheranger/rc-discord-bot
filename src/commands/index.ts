@@ -1,6 +1,6 @@
 import { REST, Routes, Client, SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { database } from '../database/db';
-import { scraper } from '../services/scraper';
+import { scraper, getYearFromMusicBrainz } from '../services/scraper';
 import { importLists } from '../scripts/import_lists';
 import { formatStars } from '../utils/format';
 
@@ -109,15 +109,26 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
     if (commandName === 'link') {
         const username = interaction.options.getString('username', true);
         await interaction.deferReply();
-        const review = await scraper.getLatestReview(username);
+        const reviews = await scraper.getRecentReviews(username);
 
-        if (review) {
+        if (reviews.length > 0) {
+            const latestReview = reviews[0];
             database.getDb().prepare(`
             INSERT OR REPLACE INTO users (record_club_username, discord_id, last_review_url, last_checked_at)
             VALUES (?, ?, ?, ?)
-        `).run(username, interaction.user.id, review.reviewUrl, Date.now());
+        `).run(username, interaction.user.id, latestReview.reviewUrl, Date.now());
 
-            await interaction.editReply(`Now tracking **${username}**! Reviews will be posted automatically.`);
+            // Auto-initialize guild settings if they don't exist
+            const settings = database.getDb().prepare('SELECT * FROM guild_settings WHERE guild_id = ?').get(interaction.guildId) as any;
+            if (!settings) {
+                database.getDb().prepare(`
+                    INSERT INTO guild_settings (guild_id, notification_channel_id)
+                    VALUES (?, ?)
+                `).run(interaction.guildId, interaction.channelId);
+                await interaction.editReply(`Now tracking **${username}** and set <#${interaction.channelId}> as the default notification channel!`);
+            } else {
+                await interaction.editReply(`Now tracking **${username}**! Reviews will be posted automatically.`);
+            }
         } else {
             await interaction.editReply(`Could not find reviews for **${username}**. Please check the username on Record Club.`);
         }
@@ -199,10 +210,16 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
             }
         }
 
-        const review = await scraper.getLatestReview(username);
-        if (!review) {
+        const reviews = await scraper.getRecentReviews(username);
+        if (reviews.length === 0) {
             await interaction.editReply(`No reviews found for **${username}**.`);
             return;
+        }
+        const review = reviews[0];
+
+        // Fetch year if missing
+        if (!review.releaseYear) {
+            review.releaseYear = await getYearFromMusicBrainz(review.artistName, review.albumTitle);
         }
 
         const stars = formatStars(review.rating);

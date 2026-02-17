@@ -67,7 +67,8 @@ export async function importLists() {
 
         links.each((_: any, link: any) => {
             const text = $(link).text().trim();
-            const match = text.match(/«(.*?)»\s*(.*)/);
+            // Match both «...» and “...” or "..."
+            const match = text.match(/[«“"](.*?)[»”"]\s*(.*)/);
             if (match) {
                 const title = match[1].trim();
                 const artist = match[2].trim();
