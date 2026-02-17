@@ -110,8 +110,8 @@ export const scraper = {
                     const timestampStr = timeElement?.getAttribute('datetime');
                     const timestamp = timestampStr ? new Date(timestampStr).getTime() : Date.now();
 
-                    const bodyEl = teaser.querySelector('.review-body, .review-teaser-body, .review-teaser-content, .review-teaser-excerpt');
-                    let reviewText = bodyEl?.textContent?.trim() || '';
+                    const bodyEl = teaser.querySelector('.review-body, .review-teaser-body, .review-teaser-content, .review-teaser-excerpt') as HTMLElement;
+                    let reviewText = bodyEl?.innerText?.trim() || '';
                     if (reviewText.length > 500) reviewText = reviewText.substring(0, 497) + '...';
 
                     const imgEl = teaser.querySelector('.release-artwork img') as HTMLImageElement;
