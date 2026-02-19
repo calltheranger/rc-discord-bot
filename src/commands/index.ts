@@ -217,13 +217,6 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
         }
         const review = reviews[0];
 
-        // Fetch full text if it was truncated by Record Club
-        if (review.isTruncated) {
-            console.log(`Lazy-loading full text for /latest ${username}...`);
-            const fullText = await scraper.getFullReviewText(review.reviewUrl);
-            if (fullText) review.reviewText = fullText;
-        }
-
         // Fetch year if missing
         if (!review.releaseYear) {
             review.releaseYear = await getYearFromMusicBrainz(review.artistName, review.albumTitle);
