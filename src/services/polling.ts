@@ -93,7 +93,18 @@ export const startPolling = (client: Client) => {
                         continue;
                     }
 
-                    const newReviews = lastIndex === -1 ? reviews : reviews.slice(0, lastIndex);
+                    // Safety catch: If we can't find the last seen review in the top 30, 
+                    // something is wrong (URL changed or more than 30 reviews posted).
+                    // In this case, we DO NOT post everything, we just seed the latest one and warn.
+                    if (lastIndex === -1 && user.last_review_url) {
+                        console.warn(`WARNING: Could not find last review URL for ${user.record_club_username}. Resetting to latest to avoid spam.`);
+                        database.getDb().prepare(`
+                        UPDATE users SET last_review_url = ?, last_checked_at = ? WHERE record_club_username = ?
+                    `).run(reviews[0].reviewUrl, Date.now(), user.record_club_username);
+                        continue;
+                    }
+
+                    const newReviews = lastIndex === -1 ? [] : reviews.slice(0, lastIndex);
 
                     if (newReviews.length > 0) {
                         console.log(`Found ${newReviews.length} new reviews for ${user.record_club_username}`);
