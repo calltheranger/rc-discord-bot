@@ -120,6 +120,13 @@ export const startPolling = (client: Client) => {
                                 review.releaseYear = await getYearFromMusicBrainz(review.artistName, review.albumTitle);
                             }
 
+                            // Fetch full text if it was truncated by Record Club
+                            if (review.isTruncated) {
+                                console.log(`Lazy-loading full text for ${review.albumTitle}...`);
+                                const fullText = await scraper.getFullReviewText(review.reviewUrl);
+                                if (fullText) review.reviewText = fullText;
+                            }
+
                             const source = getAlbumSource(review.albumTitle, review.artistName);
 
                             const guildSettings = database.getDb().prepare('SELECT * FROM guild_settings').all() as {

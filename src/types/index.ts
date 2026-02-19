@@ -9,6 +9,7 @@ export interface Review {
     userAvatar?: string;
     releaseYear?: string;
     timestamp?: number; // Approximate, if available
+    isTruncated?: boolean;
 }
 
 export interface User {

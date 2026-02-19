@@ -112,7 +112,7 @@ export const scraper = {
 
                     const bodyEl = teaser.querySelector('.review-body, .review-teaser-body, .review-teaser-content, .review-teaser-excerpt') as HTMLElement;
                     let reviewText = bodyEl?.innerText?.trim() || '';
-                    if (reviewText.length > 500) reviewText = reviewText.substring(0, 497) + '...';
+                    if (reviewText.length > 2000) reviewText = reviewText.substring(0, 1997) + '...';
 
                     const imgEl = teaser.querySelector('.release-artwork img') as HTMLImageElement;
                     let imageUrl = imgEl?.src || '';
@@ -143,6 +143,8 @@ export const scraper = {
                     const yearMatch = releaseYearText?.match(/\b(19|20)\d{2}\b/);
                     const releaseYear = yearMatch ? yearMatch[0] : undefined;
 
+                    const isTruncated = bodyEl?.innerText?.includes('… MORE') || bodyEl?.innerText?.endsWith('…');
+
                     return {
                         albumTitle,
                         artistName,
@@ -153,7 +155,8 @@ export const scraper = {
                         imageUrl,
                         userAvatar,
                         timestamp,
-                        releaseYear
+                        releaseYear,
+                        isTruncated
                     };
                 });
             }, BASE_URL);
@@ -162,7 +165,7 @@ export const scraper = {
 
             const reviews: Review[] = [];
 
-            // Process fallbacks for each review (Year and Images)
+            // Process fallbacks
             for (const data of reviewsRaw) {
                 if (!data.reviewUrl) continue;
 
@@ -181,6 +184,28 @@ export const scraper = {
         } catch (error) {
             console.error(`Error scraping ${username}:`, error);
             return [];
+        } finally {
+            if (browser) await browser.close();
+        }
+    },
+
+    getFullReviewText: async (reviewUrl: string): Promise<string | undefined> => {
+        let browser;
+        try {
+            browser = await puppeteer.launch({
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+            const page = await browser.newPage();
+            await page.goto(reviewUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            const fullText = await page.evaluate(() => {
+                const body = document.querySelector('.review-body, .review-teaser-body, .review-teaser-content, .review-teaser-excerpt, .review-content') as HTMLElement;
+                return body?.innerText?.trim() || '';
+            });
+            return fullText;
+        } catch (error) {
+            console.error(`Error fetching full review text for ${reviewUrl}:`, error);
+            return undefined;
         } finally {
             if (browser) await browser.close();
         }
