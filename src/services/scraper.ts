@@ -9,35 +9,53 @@ puppeteer.use(StealthPlugin());
 const BASE_URL = 'https://record.club';
 
 export async function getYearFromMusicBrainz(artist: string, album: string): Promise<string | undefined> {
-    try {
-        const query = `release:"${album}" AND artist:"${artist}"`;
-        const url = `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(query)}&fmt=json`;
+    const query = `release:"${album}" AND artist:"${artist}"`;
+    const url = `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(query)}&fmt=json`;
 
-        console.log(`Querying MusicBrainz fallback: ${url}`);
-        const response = await axios.get(url, {
-            headers: { 'User-Agent': 'RecordClubBot/1.0.0 ( dan@example.com )' },
-            timeout: 5000
-        });
+    let attempts = 0;
+    const maxAttempts = 3;
 
-        // MusicBrainz allows 1 request per second. We should respect this in the calling code.
-        if (response.data && response.data.releases && response.data.releases.length > 0) {
-            const releases = response.data.releases.filter((r: any) => r.date);
-            releases.sort((a: any, b: any) => a.date.localeCompare(b.date));
+    while (attempts < maxAttempts) {
+        try {
+            console.log(`Querying MusicBrainz fallback (Attempt ${attempts + 1}/${maxAttempts}): ${url}`);
+            const response = await axios.get(url, {
+                headers: { 'User-Agent': 'RecordClubBot/1.0.0 ( dan@example.com )' },
+                timeout: 8000 // Slightly longer timeout
+            });
 
-            if (releases.length > 0) {
-                const earliestDate = releases[0].date;
-                const yearMatch = earliestDate.match(/\b(19|20)\d{2}\b/);
-                if (yearMatch) {
-                    console.log(`MusicBrainz found year: ${yearMatch[0]}`);
-                    return yearMatch[0];
+            if (response.data && response.data.releases && response.data.releases.length > 0) {
+                const releases = response.data.releases.filter((r: any) => r.date);
+                releases.sort((a: any, b: any) => a.date.localeCompare(b.date));
+
+                if (releases.length > 0) {
+                    const earliestDate = releases[0].date;
+                    const yearMatch = earliestDate.match(/\b(19|20)\d{2}\b/);
+                    if (yearMatch) {
+                        console.log(`MusicBrainz found year: ${yearMatch[0]}`);
+                        return yearMatch[0];
+                    }
                 }
             }
-        }
-    } catch (error: any) {
-        if (error.response?.status === 503) {
-            console.warn('MusicBrainz rate limited (503). Skipping year for this item.');
-        } else {
+            return undefined; // No releases found
+        } catch (error: any) {
+            attempts++;
+            const isRateLimit = error.response?.status === 503;
+            const isConnReset = error.code === 'ECONNRESET' || error.message?.includes('ECONNRESET') || error.code === 'ETIMEDOUT';
+
+            if (isRateLimit) {
+                console.warn('MusicBrainz rate limited (503). Skipping year for this item.');
+                return undefined; // Don't retry on rate limit here, handled by polling loop delay
+            }
+
+            if (attempts < maxAttempts && isConnReset) {
+                const delay = attempts * 2000;
+                console.warn(`MusicBrainz lookup failed (${error.code || error.message}), retrying in ${delay}ms... (Attempt ${attempts}/${maxAttempts})`);
+                await new Promise(r => setTimeout(r, delay));
+                continue;
+            }
+
             console.error('MusicBrainz lookup failed:', error.message);
+            break;
         }
     }
     return undefined;
