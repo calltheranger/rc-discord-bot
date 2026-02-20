@@ -65,12 +65,13 @@ export const scraper = {
     getRecentReviews: async (username: string): Promise<Review[]> => {
         let browser;
         try {
-            console.log(`Launching browser to scrape ${username}...`);
+            console.log(`Launching browser for ${username}...`);
             browser = await puppeteer.launch({
                 headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox']
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
             });
             const page = await browser.newPage();
+            page.setDefaultNavigationTimeout(35000);
             await page.setViewport({ width: 1280, height: 800 });
 
             const url = `${BASE_URL}/${username}/reviews`;
@@ -89,9 +90,12 @@ export const scraper = {
                     await new Promise(r => setTimeout(r, 2000));
                 }
             }
+            console.log(`Page loaded for ${username}.`);
 
             // Wait specifically for the content we need
-            await page.waitForSelector('article.review-teaser', { timeout: 15000 }).catch(() => { });
+            await page.waitForSelector('article.review-teaser', { timeout: 15000 }).catch(() => {
+                console.warn(`Timed out waiting for review-teaser selector for ${username}.`);
+            });
 
             // Give it a moment to stabilize
             await new Promise(r => setTimeout(r, 2000));
@@ -99,8 +103,9 @@ export const scraper = {
             // Scroll to ensure more reviews are loaded (Record Club uses infinite scroll/lazy loading)
             await page.evaluate(() => window.scrollBy(0, 1000));
             await new Promise(r => setTimeout(r, 1000));
+            console.log(`Extracting reviews for ${username}...`);
 
-            const reviewsRaw = await page.evaluate((baseUrl) => {
+            const reviewsRaw = await page.evaluate((baseUrl: string) => {
                 const teasers = Array.from(document.querySelectorAll('article.review-teaser'));
 
                 return teasers.map(teaser => {
@@ -201,11 +206,11 @@ export const scraper = {
 
             return reviews;
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(`Error scraping ${username}:`, error);
             return [];
         } finally {
-            if (browser) await browser.close();
+            if (browser) await browser.close().catch(() => { });
         }
     }
 };
