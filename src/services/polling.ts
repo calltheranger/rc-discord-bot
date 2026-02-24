@@ -24,7 +24,7 @@ interface TrackedAlbum {
 
 let cachedAlbums: TrackedAlbum[] = [];
 
-const getAlbumSource = (title: string, artist: string): string | null => {
+export const getAlbumSource = (title: string, artist: string): string | null => {
     const normTitle = normalize(title);
     const normArtist = normalize(artist);
 
@@ -36,8 +36,11 @@ const getAlbumSource = (title: string, artist: string): string | null => {
     match = cachedAlbums.find(a => a.normTitle === normTitle && (a.normArtist.includes(normArtist) || normArtist.includes(a.normArtist)));
     if (match) return match.source;
 
-    // 3. Fallback: Normalized Title ONLY
-    match = cachedAlbums.find(a => a.normTitle === normTitle);
+    // 3. Try Partial Artist with Partial Title (handles "Sunday at" by "Bill Evans Trio / Scott LaFaro")
+    match = cachedAlbums.find(a =>
+        (a.normArtist.includes(normArtist) || normArtist.includes(a.normArtist)) &&
+        (a.normTitle.includes(normTitle) || normTitle.includes(a.normTitle))
+    );
     if (match) return match.source;
 
     return null;

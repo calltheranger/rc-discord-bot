@@ -1,6 +1,7 @@
 import { REST, Routes, Client, SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { database } from '../database/db';
 import { scraper, getYearFromMusicBrainz } from '../services/scraper';
+import { getAlbumSource } from '../services/polling';
 import { importLists } from '../scripts/import_lists';
 import { formatStars } from '../utils/format';
 
@@ -77,31 +78,7 @@ export const registerCommands = async (client: Client) => {
     }
 };
 
-const getAlbumSource = (title: string, artist: string): string | null => {
-    const db = database.getDb();
 
-    // Attempt to match both title and artist case-insensitively
-    const matches = db.prepare(`
-        SELECT source FROM tracked_albums 
-        WHERE title = ? COLLATE NOCASE AND artist = ? COLLATE NOCASE
-    `).all(title, artist) as { source: string }[];
-
-    if (matches.length > 0) {
-        return matches[0].source;
-    }
-
-    // Fallback: If no exact title+artist match, try title ONLY (some Record Club entries vary in artist spelling)
-    const titleOnlyMatches = db.prepare(`
-        SELECT source FROM tracked_albums 
-        WHERE title = ? COLLATE NOCASE
-    `).all(title) as { source: string }[];
-
-    if (titleOnlyMatches.length > 0) {
-        return titleOnlyMatches[0].source;
-    }
-
-    return null;
-};
 
 const handleCommand = async (interaction: ChatInputCommandInteraction) => {
     const { commandName } = interaction;
