@@ -69,8 +69,17 @@ GUILD_ID=your_guild_id_here (optional, for instant slash command updates)
 -   [ ] Set specific notification channels for curated lists using `/setchannel type:1001` or `/setchannel type:latam`.
 -   [ ] Ensure the bot has access to those specific channels.
 -   [ ] Add Record Club usernames to the tracking list using `/link username:<rc_name>`.
+-   [ ] (Optional) Manually trigger a list update using `/sync`.
 
-### 5. User Tracking & Global Scope
+### 5. Slash Commands
+
+-   `/link <username>`: Start tracking a Record Club user.
+-   `/unlink <username>`: Stop tracking a Record Club user.
+-   `/setchannel [type]`: Set the current channel for `general`, `1001`, or `latam` reviews.
+-   `/latest [username]`: Get the most recent review for a user.
+-   `/sync`: (Admin only) Force the bot to re-fetch the 1001 and Latam album lists.
+
+### 6. User Tracking & Global Scope
 
 -   **Pure Username Tracking**: Reviews are tracked based on Record Club usernames. The bot automatically fetches the reviewer's name and avatar directly from Record Club for the embed headers.
 -   **No Member Tagging Required**: Admins can register as many usernames as they like using `/link username:<rc_name>`. You no longer need to specify which Discord user they belong to.

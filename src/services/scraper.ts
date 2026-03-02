@@ -144,6 +144,15 @@ export const scraper = {
                     // Clean up triple newlines caused by wrapping <p>
                     reviewText = reviewText.replace(/\n{3,}/g, '\n\n');
 
+                    // Filter out "diary entries" (listens only)
+                    // These typically have no rating and "null" as text in RSS
+                    if (rating === 'No rating' && (reviewText === 'null' || !reviewText)) {
+                        return; // Skip this item
+                    }
+
+                    // Clean "null" string if it's the only text (sometimes happens in RSS)
+                    if (reviewText === 'null') reviewText = '';
+
                     if (reviewText.length > 2000) {
                         reviewText = reviewText.substring(0, 1997) + '...';
                     }

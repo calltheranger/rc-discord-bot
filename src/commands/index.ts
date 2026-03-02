@@ -1,7 +1,7 @@
 import { REST, Routes, Client, SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { database } from '../database/db';
 import { scraper, getYearFromMusicBrainz } from '../services/scraper';
-import { getAlbumSource } from '../services/polling';
+import { getAlbumSource, refreshAlbumCache } from '../services/polling';
 import { importLists } from '../scripts/import_lists';
 import { formatStars } from '../utils/format';
 
@@ -220,7 +220,7 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
             .setColor(color)
             .setAuthor({
                 name: `${review.username} reviewed...`,
-                iconURL: review.userAvatar
+                iconURL: review.userAvatar || undefined
             })
             .setTitle(`${review.artistName}\n**${review.albumTitle}**${yearStr}`)
             .setURL(review.reviewUrl)
@@ -239,7 +239,8 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
         await interaction.deferReply();
         try {
             await importLists();
-            await interaction.editReply('Successfully synced all album lists (1001 & Latam)!');
+            refreshAlbumCache();
+            await interaction.editReply('Successfully synced all album lists (1001 & Latam) and reloaded cache!');
         } catch (e) {
             console.error(e);
             await interaction.editReply('Failed to sync the album lists. Check logs.');
