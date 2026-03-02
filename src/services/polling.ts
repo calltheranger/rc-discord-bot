@@ -6,7 +6,7 @@ import { formatStars } from '../utils/format';
 
 const POLLING_INTERVAL = 15 * 60 * 1000; // 15 minutes
 
-const normalize = (str: string): string => {
+export const normalize = (str: string): string => {
     return str
         .toLowerCase()
         .normalize('NFD')
@@ -30,35 +30,66 @@ export const getAlbumSource = (title: string, artist: string): string | null => 
 
     // 1. Try exact normalized Title + Artist match
     let match = cachedAlbums.find(a => a.normTitle === normTitle && a.normArtist === normArtist);
-    if (match) return match.source;
+    if (match) {
+        console.log(`[MATCH] Exact match for "${title}" by "${artist}" -> ${match.source}`);
+        return match.source;
+    }
 
     // 2. Try Title match with Partial Artist (handles "Villalobos" vs "Ricardo Villalobos")
     match = cachedAlbums.find(a => a.normTitle === normTitle && (a.normArtist.includes(normArtist) || normArtist.includes(a.normArtist)));
-    if (match) return match.source;
+    if (match) {
+        console.log(`[MATCH] Partial artist match for "${title}" by "${artist}" -> ${match.source}`);
+        return match.source;
+    }
 
     // 3. Try Partial Artist with Partial Title (handles "Sunday at" by "Bill Evans Trio / Scott LaFaro")
     match = cachedAlbums.find(a =>
         (a.normArtist.includes(normArtist) || normArtist.includes(a.normArtist)) &&
         (a.normTitle.includes(normTitle) || normTitle.includes(a.normTitle))
     );
-    if (match) return match.source;
+    if (match) {
+        console.log(`[MATCH] Partial title/artist match for "${title}" by "${artist}" -> ${match.source}`);
+        return match.source;
+    }
 
+    console.log(`[NO MATCH] No list source found for "${title}" by "${artist}"`);
     return null;
 };
 
-export const startPolling = (client: Client) => {
-    console.log('Starting polling service...');
+// Load and normalize tracked albums once at startup
+export const refreshAlbumCache = () => {
+    const albums = database.getDb().prepare('SELECT title, artist, source FROM tracked_albums').all() as any[];
 
-    // Load and normalize tracked albums once at startup
-    const refreshAlbumCache = () => {
-        const albums = database.getDb().prepare('SELECT title, artist, source FROM tracked_albums').all() as any[];
+    if (albums.length === 0) {
+        console.warn('WARNING: Tracked albums list is empty! Attempting auto-sync...');
+        // We can't easily import the script here due to circular dependencies/modules
+        // but we can at least warn the user or try a dynamic import
+        try {
+            const { importLists } = require('../scripts/import_lists');
+            importLists().then(() => {
+                const reloaded = database.getDb().prepare('SELECT title, artist, source FROM tracked_albums').all() as any[];
+                cachedAlbums = reloaded.map(a => ({
+                    ...a,
+                    normTitle: normalize(a.title),
+                    normArtist: normalize(a.artist)
+                }));
+                console.log(`Auto-sync complete. Loaded ${cachedAlbums.length} albums.`);
+            });
+        } catch (e) {
+            console.error('Auto-sync failed. Please run "npm run sync" manually.', e);
+        }
+    } else {
         cachedAlbums = albums.map(a => ({
             ...a,
             normTitle: normalize(a.title),
             normArtist: normalize(a.artist)
         }));
         console.log(`Loaded ${cachedAlbums.length} albums into matching cache.`);
-    };
+    }
+};
+
+export const startPolling = (client: Client) => {
+    console.log('Starting polling service...');
 
     refreshAlbumCache();
     let isPolling = false;
