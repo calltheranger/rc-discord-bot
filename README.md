@@ -4,8 +4,9 @@ A premium Discord bot for tracking and formatting album reviews from Record Club
 
 ## Features
 
--   **Premium Formatting**: Beautifully designed embeds with custom star ratings and consistent separators.
--   **Robust Metadata**: Uses Puppeteer for reliable avatar/cover extraction and **MusicBrainz** as a fallback for release years.
+-   **Premium Formatting**: Beautifully designed embeds with custom star ratings, paragraph preservation, and consistent separators.
+-   **High Efficiency**: Uses a lightweight RSS-based scraper instead of a full browser, making it perfect for Synology NAS and lower-spec servers.
+-   **Smart Metadata**: Automatically extracts high-quality album art and user avatars using lightweight HTTP requests and **MusicBrainz** fallback for release years.
 -   **Multi-List Routing**: Automatically identifies and routes reviews from the **1001 Albums** list and the **600 Discos Latinoamérica** list to specific channels.
 -   **Admin Commands**: Easy server configuration using `/setchannel` and the ability to link accounts for other users.
 
@@ -33,7 +34,7 @@ This guide provides instructions for deploying the bot to your own Discord serve
 
 ### 2. Environment Setup
 
-The bot requires **Node.js (v18+)** and **Puppeteer** (which requires Chromium dependencies on Linux).
+The bot is designed to be extremely lightweight and requires **Node.js (v18+)**. No Chromium or browser dependencies are needed.
 
 #### Required Environment Variables (`.env`)
 Create a `.env` file in the root directory:
@@ -80,6 +81,7 @@ GUILD_ID=your_guild_id_here (optional, for instant slash command updates)
 
 ## Technical Notes
 
--   **Scraper**: Uses Puppeteer with a stealth plugin to handle dynamic content on Record Club.
+-   **Scraper**: Uses a high-efficiency RSS-based parser with `axios` and `cheerio`.
+-   **Avatars**: Retrieves user avatars by mimicking a Discord bot to access profile metadata without a full browser.
 -   **Metadata Fallback**: If Record Club is slow or blocked, the bot automatically queries the **MusicBrainz API** for release years.
 -   **Database**: Uses a local SQLite database (`bot.db`) to store user links and album list data.
