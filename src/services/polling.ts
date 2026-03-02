@@ -164,7 +164,7 @@ export const startPolling = (client: Client) => {
                                         .setColor(color)
                                         .setAuthor({
                                             name: `${review.username} reviewed...`,
-                                            iconURL: review.userAvatar
+                                            iconURL: review.userAvatar || undefined
                                         })
                                         .setTitle(`${review.artistName}\n**${review.albumTitle}**${yearStr}`)
                                         .setURL(review.reviewUrl)

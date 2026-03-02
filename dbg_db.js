@@ -1,5 +1,5 @@
 const { database } = require('./dist/database/db');
 database.init();
-const matches = database.getDb().prepare("SELECT title, artist FROM tracked_albums WHERE title LIKE '%Sunday at the Village%'").all();
-console.log("DB Matches:", matches);
+const count = database.getDb().prepare("SELECT count(*) as count FROM tracked_albums WHERE source = '1001'").get();
+console.log(count.count);
 database.getDb().close();

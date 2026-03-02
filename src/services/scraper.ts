@@ -1,10 +1,6 @@
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import axios from 'axios';
+import * as cheerio from 'cheerio';
 import { Review } from '../types';
-
-// Add stealth plugin
-puppeteer.use(StealthPlugin());
 
 const BASE_URL = 'https://record.club';
 
@@ -61,156 +57,123 @@ export async function getYearFromMusicBrainz(artist: string, album: string): Pro
     return undefined;
 }
 
+const avatarCache = new Map<string, { url: string, timestamp: number }>();
+const AVATAR_CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
+
+async function getUserAvatar(username: string): Promise<string | undefined> {
+    const cached = avatarCache.get(username);
+    if (cached && (Date.now() - cached.timestamp) < AVATAR_CACHE_TTL) {
+        return cached.url;
+    }
+
+    try {
+        console.log(`Fetching avatar for ${username} (Lightweight)...`);
+        const url = `${BASE_URL}/${username}`;
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Discordbot/2.0; +https://discord.app',
+            },
+            timeout: 5000
+        });
+
+        // Match og:image or twitter:image
+        const match = response.data.match(/property="og:image" content="([^"]+)"/);
+        if (match && match[1]) {
+            const avatarUrl = match[1].replace(/&amp;/g, '&');
+            avatarCache.set(username, { url: avatarUrl, timestamp: Date.now() });
+            return avatarUrl;
+        }
+    } catch (error: any) {
+        console.warn(`Could not fetch avatar for ${username}: ${error.message}`);
+    }
+    return undefined;
+}
+
 export const scraper = {
     getRecentReviews: async (username: string): Promise<Review[]> => {
-        let browser;
         try {
-            console.log(`Launching browser for ${username}...`);
-            browser = await puppeteer.launch({
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-            });
-            const page = await browser.newPage();
-            page.setDefaultNavigationTimeout(35000);
-            await page.setViewport({ width: 1280, height: 800 });
-
-            const url = `${BASE_URL}/${username}/reviews`;
-            console.log(`Navigating to ${url}...`);
-
-            // Use a more resilient navigation strategy with retries
-            let attempts = 0;
-            while (attempts < 3) {
-                try {
-                    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-                    break;
-                } catch (e: any) {
-                    attempts++;
-                    if (attempts >= 3) throw e;
-                    console.warn(`Navigation attempt ${attempts} failed for ${username}, retrying...`);
-                    await new Promise(r => setTimeout(r, 2000));
-                }
-            }
-            console.log(`Page loaded for ${username}.`);
-
-            // Wait specifically for the content we need
-            await page.waitForSelector('article.review-teaser', { timeout: 15000 }).catch(() => {
-                console.warn(`Timed out waiting for review-teaser selector for ${username}.`);
+            const userAvatar = await getUserAvatar(username);
+            console.log(`Fetching RSS feed for ${username}...`);
+            const rssUrl = `${BASE_URL}/${username}/reviews/rss`;
+            const response = await axios.get(rssUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                },
+                timeout: 15000
             });
 
-            // Give it a moment to stabilize
-            await new Promise(r => setTimeout(r, 2000));
+            const $ = cheerio.load(response.data, { xmlMode: true });
+            const items = $('item');
+            const reviews: Review[] = [];
 
-            // Scroll to ensure more reviews are loaded (Record Club uses infinite scroll/lazy loading)
-            await page.evaluate(() => window.scrollBy(0, 1000));
-            await new Promise(r => setTimeout(r, 1000));
-            console.log(`Extracting reviews for ${username}...`);
+            items.each((_, el) => {
+                const item = $(el);
+                const titleText = item.find('title').text().trim();
+                const reviewUrl = item.find('link').text().trim();
+                const pubDate = item.find('pubDate').text().trim();
+                const timestamp = pubDate ? new Date(pubDate).getTime() : Date.now();
+                const contentEncoded = item.find('content\\:encoded, encoded').text();
+                const imageUrl = item.find('enclosure').attr('url') || '';
 
-            const reviewsRaw = await page.evaluate((baseUrl: string) => {
-                const teasers = Array.from(document.querySelectorAll('article.review-teaser'));
+                // Extract artist, album, and rating from title
+                // Format: 'Album Title' by Artist Name - ★★★★
+                // Or: 'Album Title' by Artist Name
+                // We use a more robust regex that handles apostrophes in titles and standalone half-stars
+                const titleRegex = /^'(.+)' by (.+?)(?: - ([★]*½?))?$/;
+                const match = titleText.match(titleRegex);
 
-                return teasers.map(teaser => {
-                    const albumTitleElement = teaser.querySelector('a.line-clamp-2, a.title');
-                    const albumTitle = albumTitleElement?.textContent?.trim() || '';
-                    const albumUrlRelative = albumTitleElement?.getAttribute('href');
-                    const albumUrl = albumUrlRelative ? (albumUrlRelative.startsWith('http') ? albumUrlRelative : `${baseUrl}${albumUrlRelative}`) : '';
+                // If the rating part is empty, match[3] will be undefined or empty string, handled later.
 
-                    const reviewLinkRelative = teaser.querySelector('a.review-teaser-date')?.getAttribute('href');
-                    const reviewUrl = reviewLinkRelative ? (reviewLinkRelative.startsWith('http') ? reviewLinkRelative : `${baseUrl}${reviewLinkRelative}`) : '';
+                if (match) {
+                    const albumTitle = match[1];
+                    const artistName = match[2];
+                    const rating = match[3] || 'No rating';
 
-                    const artistLink = teaser.querySelector('a[href^="/artists/"]');
-                    let artistName = artistLink?.textContent?.trim();
-                    if (!artistName) {
-                        const headings = teaser.querySelector('h3.release-headings');
-                        artistName = headings?.textContent?.replace(albumTitle, '').trim();
-                    }
-                    if (!artistName) artistName = 'Unknown Artist';
+                    // Parse content:encoded for review text
+                    // Structure: <p><img ... /></p> <p>Review Text</p>
+                    const $content = cheerio.load(contentEncoded);
+                    $content('img').remove(); // Remove the image
 
-                    const ratingValue = teaser.querySelector('[itemprop="ratingValue"]')?.getAttribute('content') ||
-                        teaser.querySelector('[itemprop="ratingValue"]')?.textContent?.trim();
-                    let rating = ratingValue || 'No rating';
+                    // Preserve line breaks by replacing <br> and <p> tags with newlines
+                    $content('br').replaceWith('\n');
+                    $content('p').each((_, p) => {
+                        $content(p).prepend('\n').append('\n');
+                    });
 
-                    const timeElement = teaser.querySelector('time');
-                    const timestampStr = timeElement?.getAttribute('datetime');
-                    const timestamp = timestampStr ? new Date(timestampStr).getTime() : Date.now();
+                    let reviewText = $content.text().trim();
+                    // Clean up triple newlines caused by wrapping <p>
+                    reviewText = reviewText.replace(/\n{3,}/g, '\n\n');
 
-                    const bodyEl = teaser.querySelector('.review-body, .review-teaser-body, .review-teaser-content, .review-teaser-excerpt') as HTMLElement;
-                    let reviewText = bodyEl?.innerText?.trim() || '';
-                    if (reviewText.length > 2000) reviewText = reviewText.substring(0, 1997) + '...';
-
-                    const imgEl = teaser.querySelector('.release-artwork img') as HTMLImageElement;
-                    let imageUrl = imgEl?.src || '';
-                    if (!imageUrl || imageUrl.includes('placeholder')) {
-                        const artworkInner = teaser.querySelector('.release-artwork-inner');
-                        if (artworkInner) {
-                            const style = window.getComputedStyle(artworkInner).backgroundImage;
-                            const match = style.match(/url\(["']?([^"']+)["']?\)/);
-                            if (match) imageUrl = match[1];
-                        }
+                    if (reviewText.length > 2000) {
+                        reviewText = reviewText.substring(0, 1997) + '...';
                     }
 
-                    const teaserAvatar = teaser.querySelector('.avatar');
-                    const headerAvatar = document.querySelector('.user-profile-header .avatar');
-                    const avatarEl = teaserAvatar || headerAvatar;
-                    let userAvatar = '';
-                    if (avatarEl) {
-                        const avatarImg = avatarEl.querySelector('img');
-                        if (avatarImg?.src) userAvatar = avatarImg.src;
-                        else {
-                            const style = window.getComputedStyle(avatarEl).backgroundImage;
-                            const match = style.match(/url\(["']?([^"']+)["']?\)/);
-                            if (match) userAvatar = match[1];
-                        }
+                    // Hyperlink "MORE" if truncation is detected (though RSS usually has full text)
+                    if (reviewText.includes('… MORE')) {
+                        reviewText = reviewText.replace('… MORE', `[… MORE](${reviewUrl})`);
                     }
 
-                    const releaseYearText = teaser.querySelector('.release-year, .release-headings')?.textContent;
-                    const yearMatch = releaseYearText?.match(/\b(19|20)\d{2}\b/);
-                    const releaseYear = yearMatch ? yearMatch[0] : undefined;
-
-                    return {
+                    reviews.push({
+                        username,
                         albumTitle,
                         artistName,
                         rating,
                         reviewText,
                         reviewUrl,
-                        albumUrl,
                         imageUrl,
                         userAvatar,
                         timestamp,
-                        releaseYear
-                    };
-                });
-            }, BASE_URL);
-
-            if (!reviewsRaw || reviewsRaw.length === 0) return [];
-
-            const reviews: Review[] = [];
-
-            // Process fallbacks
-            for (const data of reviewsRaw) {
-                if (!data.reviewUrl) continue;
-
-                // Normalize URLs
-                if (data.imageUrl && !data.imageUrl.startsWith('http')) data.imageUrl = `${BASE_URL}${data.imageUrl}`;
-                if (data.userAvatar && !data.userAvatar.startsWith('http')) data.userAvatar = `${BASE_URL}${data.userAvatar}`;
-
-                // Hyperlink "MORE" to the full review if truncated
-                if (data.reviewText.includes('… MORE')) {
-                    data.reviewText = data.reviewText.replace('… MORE', `[… MORE](${data.reviewUrl})`);
+                        releaseYear: undefined
+                    });
                 }
-
-                reviews.push({
-                    username,
-                    ...data
-                });
-            }
+            });
 
             return reviews;
 
         } catch (error: any) {
-            console.error(`Error scraping ${username}:`, error);
+            console.error(`Error scraping RSS for ${username}:`, error.message);
             return [];
-        } finally {
-            if (browser) await browser.close().catch(() => { });
         }
     }
 };
+
