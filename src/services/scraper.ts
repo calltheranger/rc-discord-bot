@@ -79,7 +79,10 @@ async function getUserAvatar(username: string): Promise<string | undefined> {
         // Match og:image or twitter:image
         const match = response.data.match(/property="og:image" content="([^"]+)"/);
         if (match && match[1]) {
-            const avatarUrl = match[1].replace(/&amp;/g, '&');
+            // Append or replace query parameters to request a square 300x300 version
+            // This prevents elongation in Discord by ensuring the CDN returns a square crop
+            const baseUrl = match[1].split('?')[0];
+            const avatarUrl = `${baseUrl}?width=300&height=300`;
             avatarCache.set(username, { url: avatarUrl, timestamp: Date.now() });
             return avatarUrl;
         }
