@@ -147,9 +147,9 @@ export const scraper = {
                     // Clean up triple newlines caused by wrapping <p>
                     reviewText = reviewText.replace(/\n{3,}/g, '\n\n');
 
-                    // Filter out "diary entries" (listens only)
-                    // These typically have no rating and "null" as text in RSS
-                    if (rating === 'No rating' && (reviewText === 'null' || !reviewText)) {
+                    // Filter out "diary entries" (listens or ratings without notes)
+                    // These typically have "null" or empty string as text in RSS
+                    if (!reviewText || reviewText === 'null') {
                         return; // Skip this item
                     }
 
