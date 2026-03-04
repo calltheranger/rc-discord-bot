@@ -1,6 +1,6 @@
 import { Client, TextChannel, EmbedBuilder } from 'discord.js';
 import { database } from '../database/db';
-import { scraper, getYearFromMusicBrainz } from './scraper';
+import { scraper, getYearFromMusicBrainz, getYearFromRecordClub } from './scraper';
 import { User } from '../types';
 import { formatStars } from '../utils/format';
 
@@ -149,9 +149,15 @@ export const startPolling = (client: Client) => {
 
                             // Fetch Year only if missing and only for reviews we are about to post
                             if (!review.releaseYear) {
-                                // Respect MusicBrainz rate limit (1 request per second)
-                                if (i < newReviews.length - 1) await new Promise(r => setTimeout(r, 1100));
-                                review.releaseYear = await getYearFromMusicBrainz(review.artistName, review.albumTitle);
+                                // Try Record Club first (direct scrape)
+                                review.releaseYear = await getYearFromRecordClub(review.reviewUrl);
+
+                                // Fallback to MusicBrainz if Record Club failed
+                                if (!review.releaseYear) {
+                                    // Respect MusicBrainz rate limit (1 request per second)
+                                    if (i < newReviews.length - 1) await new Promise(r => setTimeout(r, 1100));
+                                    review.releaseYear = await getYearFromMusicBrainz(review.artistName, review.albumTitle);
+                                }
                             }
 
                             const source = getAlbumSource(review.albumTitle, review.artistName);

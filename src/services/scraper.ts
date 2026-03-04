@@ -3,36 +3,117 @@ import * as cheerio from 'cheerio';
 import { Review } from '../types';
 
 const BASE_URL = 'https://record.club';
+import { formatStars, normalize } from '../utils/format';
+
+export async function getYearFromRecordClub(reviewUrl: string): Promise<string | undefined> {
+    try {
+        console.log(`Fetching year from Record Club page: ${reviewUrl}`);
+        const response = await axios.get(reviewUrl, {
+            headers: {
+                'User-Agent': 'Discordbot/2.0; +https://discord.app',
+            },
+            timeout: 10000
+        });
+
+        const $ = cheerio.load(response.data);
+
+        // Strategy 1: Look for the specific definition list in "Release details"
+        const releasedDate = $('.entity-details-title').filter((_, el) => $(el).text().trim() === 'Released').next('.entity-details-description').text().trim();
+        if (releasedDate) {
+            const yearMatch = releasedDate.match(/\b((?:19|20)\d{2})\b/);
+            if (yearMatch) {
+                console.log(`Record Club page found year (Strategy 1): ${yearMatch[1]}`);
+                return yearMatch[1];
+            }
+        }
+
+        // Strategy 2: Look for the breadcrumb or header text (e.g., "Elastica (1995)")
+        const headerText = $('h1, .breadcrumb, title, .entity-header').text();
+        const yearMatch = headerText.match(/\(((?:19|20)\d{2})\)/);
+        if (yearMatch) {
+            const year = yearMatch[1];
+            console.log(`Record Club header found year (Strategy 2): ${year}`);
+            return year;
+        }
+
+        // Strategy 3: Look for "og:title" meta tag which often has "Artist - Album (Year)"
+        const ogTitle = $('meta[property="og:title"]').attr('content');
+        if (ogTitle) {
+            const match = ogTitle.match(/\(((?:19|20)\d{2})\)/);
+            if (match) {
+                console.log(`Record Club og:title found year (Strategy 3): ${match[1]}`);
+                return match[1];
+            }
+        }
+
+        // Strategy 4: Look for "ALBUM • 1995" pattern in text
+        const metaText = $('.entity-meta, .release-meta, main').text();
+        const albumMetaMatch = metaText.match(/ALBUM\s*•?\s*((?:19|20)\d{2})/i);
+        if (albumMetaMatch) {
+            const year = albumMetaMatch[1];
+            console.log(`Record Club meta found year (Strategy 4): ${year}`);
+            return year;
+        }
+
+    } catch (error: any) {
+        console.warn(`Failed to fetch year from Record Club: ${error.message}`);
+    }
+    return undefined;
+}
 
 export async function getYearFromMusicBrainz(artist: string, album: string): Promise<string | undefined> {
-    const query = `release:"${album}" AND artist:"${artist}"`;
-    const url = `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(query)}&fmt=json`;
+    const query = `releasegroup:"${album}" AND artist:"${artist}"`;
+    const url = `https://musicbrainz.org/ws/2/release-group/?query=${encodeURIComponent(query)}&fmt=json`;
 
     let attempts = 0;
     const maxAttempts = 3;
+    const normArtist = normalize(artist);
+    const normAlbum = normalize(album);
 
     while (attempts < maxAttempts) {
         try {
-            console.log(`Querying MusicBrainz fallback (Attempt ${attempts + 1}/${maxAttempts}): ${url}`);
+            console.log(`Querying MusicBrainz (Attempt ${attempts + 1}/${maxAttempts}): ${url}`);
             const response = await axios.get(url, {
                 headers: { 'User-Agent': 'RecordClubBot/1.0.0 ( dan@example.com )' },
-                timeout: 8000 // Slightly longer timeout
+                timeout: 8000
             });
 
-            if (response.data && response.data.releases && response.data.releases.length > 0) {
-                const releases = response.data.releases.filter((r: any) => r.date);
-                releases.sort((a: any, b: any) => a.date.localeCompare(b.date));
+            if (response.data && response.data['release-groups'] && response.data['release-groups'].length > 0) {
+                // Filter for sensible matches
+                let filteredGroups = response.data['release-groups'].filter((g: any) => {
+                    if (!g['first-release-date']) return false;
 
-                if (releases.length > 0) {
-                    const earliestDate = releases[0].date;
+                    const gNormTitle = normalize(g.title);
+                    const artistCredit = g['artist-credit'] || [];
+                    const gNormArtist = normalize(artistCredit[0]?.name || artistCredit[0]?.artist?.name || '');
+
+                    // Check for exact normalized matches
+                    return gNormTitle === normAlbum && gNormArtist === normArtist;
+                });
+
+                // If no exact match, fall back to includes but still requiring artist match
+                if (filteredGroups.length === 0) {
+                    filteredGroups = response.data['release-groups'].filter((g: any) => {
+                        if (!g['first-release-date']) return false;
+                        const gNormTitle = normalize(g.title);
+                        const artistCredit = g['artist-credit'] || [];
+                        const gNormArtist = normalize(artistCredit[0]?.name || artistCredit[0]?.artist?.name || '');
+                        return gNormTitle.includes(normAlbum) && gNormArtist.includes(normArtist);
+                    });
+                }
+
+                filteredGroups.sort((a: any, b: any) => a['first-release-date'].localeCompare(b['first-release-date']));
+
+                if (filteredGroups.length > 0) {
+                    const earliestDate = filteredGroups[0]['first-release-date'];
                     const yearMatch = earliestDate.match(/\b(19|20)\d{2}\b/);
                     if (yearMatch) {
-                        console.log(`MusicBrainz found year: ${yearMatch[0]}`);
+                        console.log(`MusicBrainz found year: ${yearMatch[0]} for ${album} by ${artist}`);
                         return yearMatch[0];
                     }
                 }
             }
-            return undefined; // No releases found
+            return undefined;
         } catch (error: any) {
             attempts++;
             const isRateLimit = error.response?.status === 503;
@@ -40,7 +121,7 @@ export async function getYearFromMusicBrainz(artist: string, album: string): Pro
 
             if (isRateLimit) {
                 console.warn('MusicBrainz rate limited (503). Skipping year for this item.');
-                return undefined; // Don't retry on rate limit here, handled by polling loop delay
+                return undefined;
             }
 
             if (attempts < maxAttempts && isConnReset) {
@@ -118,33 +199,22 @@ export const scraper = {
                 const contentEncoded = item.find('content\\:encoded, encoded').text();
                 const imageUrl = item.find('enclosure').attr('url') || '';
 
-                // Extract artist, album, and rating from title
-                // Format: 'Album Title' by Artist Name - ★★★★
-                // Or: 'Album Title' by Artist Name
-                // We use a more robust regex that handles apostrophes in titles and standalone half-stars
                 const titleRegex = /^'(.+)' by (.+?)(?: - ([★]*½?))?$/;
                 const match = titleText.match(titleRegex);
-
-                // If the rating part is empty, match[3] will be undefined or empty string, handled later.
 
                 if (match) {
                     const albumTitle = match[1];
                     const artistName = match[2];
                     const rating = match[3] || 'No rating';
 
-                    // Parse content:encoded for review text
-                    // Structure: <p><img ... /></p> <p>Review Text</p>
                     const $content = cheerio.load(contentEncoded);
-                    $content('img').remove(); // Remove the image
-
-                    // Preserve line breaks by replacing <br> and <p> tags with newlines
+                    $content('img').remove();
                     $content('br').replaceWith('\n');
                     $content('p').each((_, p) => {
                         $content(p).prepend('\n').append('\n');
                     });
 
                     let reviewText = $content.text().trim();
-                    // Clean up triple newlines caused by wrapping <p>
                     reviewText = reviewText.replace(/\n{3,}/g, '\n\n');
 
                     // Filter out "diary entries" (listens or ratings without notes)
@@ -153,14 +223,10 @@ export const scraper = {
                         return; // Skip this item
                     }
 
-                    // Clean "null" string if it's the only text (sometimes happens in RSS)
-                    if (reviewText === 'null') reviewText = '';
-
                     if (reviewText.length > 2000) {
                         reviewText = reviewText.substring(0, 1997) + '...';
                     }
 
-                    // Hyperlink "MORE" if truncation is detected (though RSS usually has full text)
                     if (reviewText.includes('… MORE')) {
                         reviewText = reviewText.replace('… MORE', `[… MORE](${reviewUrl})`);
                     }
