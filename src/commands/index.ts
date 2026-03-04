@@ -1,6 +1,6 @@
 import { REST, Routes, Client, SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { database } from '../database/db';
-import { scraper, getYearFromMusicBrainz } from '../services/scraper';
+import { scraper, getYearFromMusicBrainz, getYearFromRecordClub } from '../services/scraper';
 import { getAlbumSource, refreshAlbumCache } from '../services/polling';
 import { importLists } from '../scripts/import_lists';
 import { formatStars } from '../utils/format';
@@ -196,7 +196,7 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
 
         // Fetch year if missing
         if (!review.releaseYear) {
-            review.releaseYear = await getYearFromMusicBrainz(review.artistName, review.albumTitle);
+            review.releaseYear = await getYearFromRecordClub(review.reviewUrl) || await getYearFromMusicBrainz(review.artistName, review.albumTitle);
         }
 
         const stars = formatStars(review.rating);

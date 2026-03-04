@@ -5,9 +5,10 @@ A premium Discord bot for tracking and formatting album reviews from Record Club
 ## Features
 
 -   **Premium Formatting**: Beautifully designed embeds with custom star ratings, paragraph preservation, and consistent separators.
--   **High Efficiency**: Uses a lightweight RSS-based scraper instead of a full browser, making it perfect for Synology NAS and lower-spec servers.
--   **Smart Metadata**: Automatically extracts high-quality album art and user avatars using lightweight HTTP requests and **MusicBrainz** fallback for release years.
+-   **High Efficiency**: Uses a lightweight RSS-based parser and **Lazy Loading** for metadata. It only fetches release years when a new review is posted, minimizing network overhead.
+-   **Native Metadata Extraction**: Automatically extracts high-quality album art, user avatars (square cropped), and **Native Release Years** directly from Record Club album pages for 100% site parity.
 -   **Multi-List Routing**: Automatically identifies and routes reviews from the **1001 Albums** list and the **600 Discos Latinoamérica** list to specific channels.
+-   **Intelligent Fallback**: Uses the **MusicBrainz API** as a secondary backup for release years if direct scraping is unavailable.
 -   **Admin Commands**: Easy server configuration using `/setchannel` and the ability to link accounts for other users.
 
 ---
@@ -91,6 +92,7 @@ GUILD_ID=your_guild_id_here (optional, for instant slash command updates)
 ## Technical Notes
 
 -   **Scraper**: Uses a high-efficiency RSS-based parser with `axios` and `cheerio`.
--   **Avatars**: Retrieves user avatars by mimicking a Discord bot to access profile metadata without a full browser.
--   **Metadata Fallback**: If Record Club is slow or blocked, the bot automatically queries the **MusicBrainz API** for release years.
+-   **Avatars**: Retrieves user avatars with specific square crop parameters (`?width=300&height=300`) to ensure perfect display in Discord.
+-   **Year Extraction**: Prioritizes direct scraping from Record Club album pages (headers, breadcrumbs, and "Release details") for maximum accuracy.
+-   **Metadata Fallback**: If Record Club is slow or the year is missing, the bot queries the **MusicBrainz API** as a robust secondary source.
 -   **Database**: Uses a local SQLite database (`bot.db`) to store user links and album list data.

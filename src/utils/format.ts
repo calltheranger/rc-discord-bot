@@ -7,3 +7,11 @@ export const formatStars = (rating: string): string => {
 
     return '★'.repeat(fullStars) + (halfStar ? '½' : '');
 };
+
+export const normalize = (str: string): string => {
+    return str
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove accents
+        .replace(/[^a-z0-9]/g, ''); // Remove non-alphanumeric
+};
