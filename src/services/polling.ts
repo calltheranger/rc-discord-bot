@@ -2,17 +2,10 @@ import { Client, TextChannel, EmbedBuilder } from 'discord.js';
 import { database } from '../database/db';
 import { scraper, getYearFromMusicBrainz, getYearFromRecordClub } from './scraper';
 import { User } from '../types';
-import { formatStars } from '../utils/format';
+import { formatStars, normalize } from '../utils/format';
 
 const POLLING_INTERVAL = 15 * 60 * 1000; // 15 minutes
 
-export const normalize = (str: string): string => {
-    return str
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '') // Remove accents
-        .replace(/[^a-z0-9]/g, ''); // Remove non-alphanumeric
-};
 
 interface TrackedAlbum {
     title: string;
