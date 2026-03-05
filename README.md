@@ -7,6 +7,7 @@ A premium Discord bot for tracking and formatting album reviews from Record Club
 -   **Premium Formatting**: Beautifully designed embeds with custom star ratings, paragraph preservation, and consistent separators.
 -   **High Efficiency**: Uses a lightweight RSS-based parser and **Lazy Loading** for metadata. It only fetches release years when a new review is posted, minimizing network overhead.
 -   **Native Metadata Extraction**: Automatically extracts high-quality album art, user avatars (square cropped), and **Native Release Years** directly from Record Club album pages for 100% site parity.
+-   **Smart List Matching**: Normalizes special characters and synonyms (e.g., treating `&` as `and`) to ensure perfectly accurate routing to the **1001 Albums** or **Latam** channels, even when naming conventions differ between sources.
 -   **Multi-List Routing**: Automatically identifies and routes reviews from the **1001 Albums** list and the **600 Discos Latinoamérica** list to specific channels.
 -   **Intelligent Fallback**: Uses the **MusicBrainz API** as a secondary backup for release years if direct scraping is unavailable.
 -   **Admin Commands**: Easy server configuration using `/setchannel` and the ability to link accounts for other users.
