@@ -199,7 +199,7 @@ export const scraper = {
                 const contentEncoded = item.find('content\\:encoded, encoded').text();
                 const imageUrl = item.find('enclosure').attr('url') || '';
 
-                const titleRegex = /^'(.+)' by (.+?)(?: - ([★]*½?))?$/;
+                const titleRegex = /^(?:[↻]+\s*)?'(.+)' by (.+?)(?: - ([★]*½?))?$/;
                 const match = titleText.match(titleRegex);
 
                 if (match) {
@@ -211,15 +211,21 @@ export const scraper = {
                     $content('img').remove();
                     $content('br').replaceWith('\n');
                     $content('p').each((_, p) => {
-                        $content(p).prepend('\n').append('\n');
+                        const pText = $content(p).text().trim();
+                        if (pText.startsWith('Listened:') || pText.startsWith('Listened on ') || pText === 'Repeat listen') {
+                            $content(p).remove();
+                        } else {
+                            $content(p).prepend('\n').append('\n');
+                        }
                     });
 
                     let reviewText = $content.text().trim();
-                    reviewText = reviewText.replace(/\n{3,}/g, '\n\n');
+                    reviewText = reviewText.replace(/^\s+|\s+$/g, '').replace(/\n{3,}/g, '\n\n');
 
                     // Filter out "diary entries" (listens or ratings without notes)
                     // These typically have "null" or empty string as text in RSS
-                    if (!reviewText || reviewText === 'null') {
+                    const checkText = reviewText.replace(/\s+/g, ' ').trim();
+                    if (!checkText || checkText === 'null') {
                         return; // Skip this item
                     }
 
