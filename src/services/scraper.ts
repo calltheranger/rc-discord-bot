@@ -5,9 +5,10 @@ import { Review } from '../types';
 const BASE_URL = 'https://record.club';
 import { formatStars, normalize } from '../utils/format';
 
-export async function getYearFromRecordClub(reviewUrl: string): Promise<string | undefined> {
+export async function getReleaseDataFromRecordClub(reviewUrl: string): Promise<{ year?: string, imageUrl?: string }> {
+    let result: { year?: string, imageUrl?: string } = {};
     try {
-        console.log(`Fetching year from Record Club page: ${reviewUrl}`);
+        console.log(`Fetching release data from Record Club page: ${reviewUrl}`);
         const response = await axios.get(reviewUrl, {
             headers: {
                 'User-Agent': 'Discordbot/2.0; +https://discord.app',
@@ -16,6 +17,8 @@ export async function getYearFromRecordClub(reviewUrl: string): Promise<string |
         });
 
         const $ = cheerio.load(response.data);
+        const rawImageUrl = $('meta[property="og:image"]').attr('content');
+        result.imageUrl = rawImageUrl || undefined;
 
         // Strategy 1: Look for the specific definition list in "Release details"
         const releasedDate = $('.entity-details-title').filter((_, el) => $(el).text().trim() === 'Released').next('.entity-details-description').text().trim();
@@ -23,26 +26,28 @@ export async function getYearFromRecordClub(reviewUrl: string): Promise<string |
             const yearMatch = releasedDate.match(/\b((?:19|20)\d{2})\b/);
             if (yearMatch) {
                 console.log(`Record Club page found year (Strategy 1): ${yearMatch[1]}`);
-                return yearMatch[1];
+                result.year = yearMatch[1];
+                return result;
             }
         }
 
         // Strategy 2: Look for the breadcrumb or header text (e.g., "Elastica (1995)")
         const headerText = $('h1, .breadcrumb, title, .entity-header').text();
-        const yearMatch = headerText.match(/\(((?:19|20)\d{2})\)/);
-        if (yearMatch) {
-            const year = yearMatch[1];
-            console.log(`Record Club header found year (Strategy 2): ${year}`);
-            return year;
+        const yearMatch2 = headerText.match(/\(((?:19|20)\d{2})\)/);
+        if (yearMatch2) {
+            console.log(`Record Club header found year (Strategy 2): ${yearMatch2[1]}`);
+            result.year = yearMatch2[1];
+            return result;
         }
 
         // Strategy 3: Look for "og:title" meta tag which often has "Artist - Album (Year)"
         const ogTitle = $('meta[property="og:title"]').attr('content');
         if (ogTitle) {
-            const match = ogTitle.match(/\(((?:19|20)\d{2})\)/);
-            if (match) {
-                console.log(`Record Club og:title found year (Strategy 3): ${match[1]}`);
-                return match[1];
+            const match3 = ogTitle.match(/\(((?:19|20)\d{2})\)/);
+            if (match3) {
+                console.log(`Record Club og:title found year (Strategy 3): ${match3[1]}`);
+                result.year = match3[1];
+                return result;
             }
         }
 
@@ -50,18 +55,23 @@ export async function getYearFromRecordClub(reviewUrl: string): Promise<string |
         const metaText = $('.entity-meta, .release-meta, main').text();
         const albumMetaMatch = metaText.match(/ALBUM\s*•?\s*((?:19|20)\d{2})/i);
         if (albumMetaMatch) {
-            const year = albumMetaMatch[1];
-            console.log(`Record Club meta found year (Strategy 4): ${year}`);
-            return year;
+            console.log(`Record Club meta found year (Strategy 4): ${albumMetaMatch[1]}`);
+            result.year = albumMetaMatch[1];
+            return result;
+        }
+
+        if (result.imageUrl) {
+            console.log(`Record Club page found image but no year`);
+            return result;
         }
 
     } catch (error: any) {
-        console.warn(`Failed to fetch year from Record Club: ${error.message}`);
+        console.warn(`Failed to fetch release data from Record Club: ${error.message}`);
     }
-    return undefined;
+    return result;
 }
 
-export async function getYearFromMusicBrainz(artist: string, album: string): Promise<string | undefined> {
+export async function getReleaseDataFromMusicBrainz(artist: string, album: string): Promise<{ year?: string, imageUrl?: string }> {
     const query = `releasegroup:"${album}" AND artist:"${artist}"`;
     const url = `https://musicbrainz.org/ws/2/release-group/?query=${encodeURIComponent(query)}&fmt=json`;
 
@@ -107,21 +117,25 @@ export async function getYearFromMusicBrainz(artist: string, album: string): Pro
                 if (filteredGroups.length > 0) {
                     const earliestDate = filteredGroups[0]['first-release-date'];
                     const yearMatch = earliestDate.match(/\b(19|20)\d{2}\b/);
+                    const mbid = filteredGroups[0].id;
+                    const imageUrl = `https://coverartarchive.org/release-group/${mbid}/front-500`;
+
                     if (yearMatch) {
                         console.log(`MusicBrainz found year: ${yearMatch[0]} for ${album} by ${artist}`);
-                        return yearMatch[0];
+                        return { year: yearMatch[0], imageUrl };
                     }
+                    return { imageUrl };
                 }
             }
-            return undefined;
+            return {};
         } catch (error: any) {
             attempts++;
             const isRateLimit = error.response?.status === 503;
             const isConnReset = error.code === 'ECONNRESET' || error.message?.includes('ECONNRESET') || error.code === 'ETIMEDOUT';
 
             if (isRateLimit) {
-                console.warn('MusicBrainz rate limited (503). Skipping year for this item.');
-                return undefined;
+                console.warn('MusicBrainz rate limited (503). Skipping data fetch for this item.');
+                return {};
             }
 
             if (attempts < maxAttempts && isConnReset) {
@@ -135,7 +149,7 @@ export async function getYearFromMusicBrainz(artist: string, album: string): Pro
             break;
         }
     }
-    return undefined;
+    return {};
 }
 
 const avatarCache = new Map<string, { url: string, timestamp: number }>();

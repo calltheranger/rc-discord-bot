@@ -1,6 +1,7 @@
-import { Client, TextChannel, EmbedBuilder } from 'discord.js';
+import { Client, TextChannel, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import axios from 'axios';
 import { database } from '../database/db';
-import { scraper, getYearFromMusicBrainz, getYearFromRecordClub } from './scraper';
+import { scraper, getReleaseDataFromMusicBrainz, getReleaseDataFromRecordClub } from './scraper';
 import { User } from '../types';
 import { formatStars, normalize } from '../utils/format';
 
@@ -140,16 +141,20 @@ export const startPolling = (client: Client) => {
                         for (let i = newReviews.length - 1; i >= 0; i--) {
                             const review = newReviews[i];
 
-                            // Fetch Year only if missing and only for reviews we are about to post
-                            if (!review.releaseYear) {
+                            // Fetch Year and Image only if missing and only for reviews we are about to post
+                            if (!review.releaseYear || !review.imageUrl) {
                                 // Try Record Club first (direct scrape)
-                                review.releaseYear = await getYearFromRecordClub(review.reviewUrl);
+                                const rcData = await getReleaseDataFromRecordClub(review.reviewUrl);
+                                review.releaseYear = review.releaseYear || rcData.year;
+                                review.imageUrl = review.imageUrl || rcData.imageUrl;
 
                                 // Fallback to MusicBrainz if Record Club failed
-                                if (!review.releaseYear) {
+                                if (!review.releaseYear || !review.imageUrl) {
                                     // Respect MusicBrainz rate limit (1 request per second)
                                     if (i < newReviews.length - 1) await new Promise(r => setTimeout(r, 1100));
-                                    review.releaseYear = await getYearFromMusicBrainz(review.artistName, review.albumTitle);
+                                    const mbData = await getReleaseDataFromMusicBrainz(review.artistName, review.albumTitle);
+                                    review.releaseYear = review.releaseYear || mbData.year;
+                                    review.imageUrl = review.imageUrl || mbData.imageUrl;
                                 }
                             }
 
@@ -202,9 +207,34 @@ export const startPolling = (client: Client) => {
                                         .setFooter({ text: footerText })
                                         .setTimestamp(review.timestamp);
 
-                                    if (review.imageUrl) embed.setThumbnail(review.imageUrl);
+                                    const payload: any = { embeds: [embed] };
 
-                                    await channel.send({ embeds: [embed] });
+                                    if (review.imageUrl) {
+                                        try {
+                                            const imgResponse = await axios.get(review.imageUrl, { responseType: 'arraybuffer', timeout: 6000 });
+                                            const attachment = new AttachmentBuilder(Buffer.from(imgResponse.data), { name: 'cover.jpg' });
+                                            embed.setThumbnail('attachment://cover.jpg');
+                                            payload.files = [attachment];
+                                        } catch (err: any) {
+                                            console.warn(`Failed to download RC image: ${review.imageUrl}, trying fallback...`, err.message);
+                                            try {
+                                                const mbData = await getReleaseDataFromMusicBrainz(review.artistName, review.albumTitle);
+                                                if (mbData.imageUrl) {
+                                                    const mbResponse = await axios.get(mbData.imageUrl, { responseType: 'arraybuffer', timeout: 6000 });
+                                                    const attachment = new AttachmentBuilder(Buffer.from(mbResponse.data), { name: 'cover.jpg' });
+                                                    embed.setThumbnail('attachment://cover.jpg');
+                                                    payload.files = [attachment];
+                                                } else {
+                                                    embed.setThumbnail(review.imageUrl);
+                                                }
+                                            } catch (mbErr: any) {
+                                                console.warn(`MB image fallback failed, using raw URL.`, mbErr.message);
+                                                embed.setThumbnail(review.imageUrl);
+                                            }
+                                        }
+                                    }
+
+                                    await channel.send(payload);
                                     console.log(`Notification sent for ${review.albumTitle} to channel ${channel.name}`);
                                 }
                             }

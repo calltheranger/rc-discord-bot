@@ -1,6 +1,7 @@
-import { REST, Routes, Client, SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
+import { REST, Routes, Client, SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import axios from 'axios';
 import { database } from '../database/db';
-import { scraper, getYearFromMusicBrainz, getYearFromRecordClub } from '../services/scraper';
+import { scraper, getReleaseDataFromMusicBrainz, getReleaseDataFromRecordClub } from '../services/scraper';
 import { getAlbumSource, refreshAlbumCache } from '../services/polling';
 import { importLists } from '../scripts/import_lists';
 import { formatStars } from '../utils/format';
@@ -194,9 +195,17 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
         }
         const review = reviews[0];
 
-        // Fetch year if missing
-        if (!review.releaseYear) {
-            review.releaseYear = await getYearFromRecordClub(review.reviewUrl) || await getYearFromMusicBrainz(review.artistName, review.albumTitle);
+        // Fetch year and image if missing
+        if (!review.releaseYear || !review.imageUrl) {
+            const rcData = await getReleaseDataFromRecordClub(review.reviewUrl);
+            review.releaseYear = review.releaseYear || rcData.year;
+            review.imageUrl = review.imageUrl || rcData.imageUrl;
+
+            if (!review.releaseYear || !review.imageUrl) {
+                const mbData = await getReleaseDataFromMusicBrainz(review.artistName, review.albumTitle);
+                review.releaseYear = review.releaseYear || mbData.year;
+                review.imageUrl = review.imageUrl || mbData.imageUrl;
+            }
         }
 
         const stars = formatStars(review.rating);
@@ -228,11 +237,33 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
             .setFooter({ text: footerText })
             .setTimestamp(review.timestamp);
 
+        const payload: any = { embeds: [embed] };
+
         if (review.imageUrl) {
-            embed.setThumbnail(review.imageUrl);
+            try {
+                const imgResponse = await axios.get(review.imageUrl, { responseType: 'arraybuffer', timeout: 6000 });
+                const attachment = new AttachmentBuilder(Buffer.from(imgResponse.data), { name: 'cover.jpg' });
+                embed.setThumbnail('attachment://cover.jpg');
+                payload.files = [attachment];
+            } catch (err: any) {
+                console.warn(`[Command] Failed to download RC image: ${review.imageUrl}, trying fallback...`, err.message);
+                try {
+                    const mbData = await getReleaseDataFromMusicBrainz(review.artistName, review.albumTitle);
+                    if (mbData.imageUrl) {
+                        const mbResponse = await axios.get(mbData.imageUrl, { responseType: 'arraybuffer', timeout: 6000 });
+                        const attachment = new AttachmentBuilder(Buffer.from(mbResponse.data), { name: 'cover.jpg' });
+                        embed.setThumbnail('attachment://cover.jpg');
+                        payload.files = [attachment];
+                    } else {
+                        embed.setThumbnail(review.imageUrl);
+                    }
+                } catch (mbErr: any) {
+                    embed.setThumbnail(review.imageUrl);
+                }
+            }
         }
 
-        await interaction.editReply({ embeds: [embed] });
+        await interaction.editReply(payload);
     }
 
     if (commandName === 'sync') {
