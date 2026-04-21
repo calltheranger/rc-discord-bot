@@ -1,8 +1,9 @@
 import { Client, TextChannel, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import axios from 'axios';
+import { createHash } from 'crypto';
 import { database } from '../database/db';
 import { scraper, getReleaseDataFromMusicBrainz, getReleaseDataFromRecordClub } from './scraper';
-import { User } from '../types';
+import { User, Review } from '../types';
 import { formatStars, normalize } from '../utils/format';
 
 const POLLING_INTERVAL = 15 * 60 * 1000; // 15 minutes
@@ -17,6 +18,20 @@ interface TrackedAlbum {
 }
 
 let cachedAlbums: TrackedAlbum[] = [];
+
+export const generateReviewHash = (review: Review): string => {
+    // Hash components: username, artist, album, rating, and review text
+    const data = `${review.username}:${review.artistName}:${review.albumTitle}:${review.rating}:${review.reviewText}`;
+    return createHash('sha256').update(data).digest('hex');
+};
+
+const cleanupProcessedReviews = () => {
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const result = database.getDb().prepare('DELETE FROM processed_reviews WHERE timestamp < ?').run(thirtyDaysAgo);
+    if (result.changes > 0) {
+        console.log(`Cleaned up ${result.changes} old review hashes.`);
+    }
+};
 
 export const getAlbumSource = (title: string, artist: string): string | null => {
     const normTitle = normalize(title);
@@ -141,6 +156,15 @@ export const startPolling = (client: Client) => {
                         for (let i = newReviews.length - 1; i >= 0; i--) {
                             const review = newReviews[i];
 
+                            // Duplicate check via content hash
+                            const hash = generateReviewHash(review);
+                            const isDuplicate = database.getDb().prepare('SELECT 1 FROM processed_reviews WHERE review_hash = ?').get(hash);
+                            
+                            if (isDuplicate) {
+                                console.log(`Skipping duplicate review (content hash match): ${review.albumTitle} by ${review.artistName}`);
+                                continue;
+                            }
+
                             // Fetch Year and Image only if missing and only for reviews we are about to post
                             if (!review.releaseYear || !review.imageUrl) {
                                 // Try Record Club first (direct scrape)
@@ -236,6 +260,9 @@ export const startPolling = (client: Client) => {
 
                                     await channel.send(payload);
                                     console.log(`Notification sent for ${review.albumTitle} to channel ${channel.name}`);
+                                    
+                                    // Mark as processed
+                                    database.getDb().prepare('INSERT OR IGNORE INTO processed_reviews (review_hash, timestamp) VALUES (?, ?)').run(hash, Date.now());
                                 }
                             }
                         }
@@ -252,6 +279,7 @@ export const startPolling = (client: Client) => {
         } catch (error) {
             console.error('Error during global poll cycle:', error);
         } finally {
+            cleanupProcessedReviews();
             isPolling = false;
         }
     };

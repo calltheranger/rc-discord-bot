@@ -223,6 +223,33 @@ export const scraper = {
 
                     const $content = cheerio.load(contentEncoded);
                     $content('img').remove();
+
+                    // Convert formatting tags to Markdown
+                    $content('strong, b').each((_, el) => {
+                        const $el = $content(el);
+                        $el.replaceWith(`**${$el.html()}**`);
+                    });
+                    $content('em, i').each((_, el) => {
+                        const $el = $content(el);
+                        $el.replaceWith(`*${$el.html()}*`);
+                    });
+                    $content('u').each((_, el) => {
+                        const $el = $content(el);
+                        $el.replaceWith(`__${$el.html()}__`);
+                    });
+                    $content('s, strike, del').each((_, el) => {
+                        const $el = $content(el);
+                        $el.replaceWith(`~~${$el.html()}~~`);
+                    });
+                    $content('a').each((_, el) => {
+                        const $el = $content(el);
+                        const href = $el.attr('href');
+                        const text = $el.html();
+                        if (href) {
+                            $el.replaceWith(`[${text}](${href})`);
+                        }
+                    });
+
                     $content('br').replaceWith('\n');
                     $content('p').each((_, p) => {
                         const pText = $content(p).text().trim();

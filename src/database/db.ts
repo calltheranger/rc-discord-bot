@@ -30,6 +30,13 @@ export const database = {
         PRIMARY KEY (title, artist, source)
       );
     `);
+    
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS processed_reviews (
+        review_hash TEXT PRIMARY KEY,
+        timestamp INTEGER
+      );
+    `);
   },
   getDb: () => db
 };
