@@ -2,7 +2,7 @@ import { REST, Routes, Client, SlashCommandBuilder, ChatInputCommandInteraction,
 import axios from 'axios';
 import { database } from '../database/db';
 import { scraper, getReleaseDataFromMusicBrainz, getReleaseDataFromRecordClub } from '../services/scraper';
-import { getAlbumSource, refreshAlbumCache } from '../services/polling';
+import { getAlbumSource, refreshAlbumCache, generateReviewHash } from '../services/polling';
 import { importLists } from '../scripts/import_lists';
 import { formatStars } from '../utils/format';
 
@@ -194,6 +194,13 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
             return;
         }
         const review = reviews[0];
+        const hash = generateReviewHash(review);
+        const isDuplicate = database.getDb().prepare('SELECT 1 FROM processed_reviews WHERE review_hash = ?').get(hash);
+
+        if (isDuplicate) {
+            await interaction.editReply(`The latest review for **${username}** has already been sent to Discord.`);
+            return;
+        }
 
         // Fetch year and image if missing
         if (!review.releaseYear || !review.imageUrl) {
@@ -264,6 +271,9 @@ const handleCommand = async (interaction: ChatInputCommandInteraction) => {
         }
 
         await interaction.editReply(payload);
+        
+        // Mark as processed
+        database.getDb().prepare('INSERT OR IGNORE INTO processed_reviews (review_hash, timestamp) VALUES (?, ?)').run(hash, Date.now());
     }
 
     if (commandName === 'sync') {
