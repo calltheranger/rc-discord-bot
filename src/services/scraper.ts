@@ -3,6 +3,14 @@ import * as cheerio from 'cheerio';
 import { Review } from '../types';
 
 const BASE_URL = 'https://record.club';
+
+const COMMON_HEADERS = {
+    'User-Agent': 'Discordbot/2.0; +https://discord.app',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://record.club/',
+};
+
 import { formatStars, normalize } from '../utils/format';
 
 export async function getReleaseDataFromRecordClub(reviewUrl: string): Promise<{ year?: string, imageUrl?: string }> {
@@ -10,9 +18,7 @@ export async function getReleaseDataFromRecordClub(reviewUrl: string): Promise<{
     try {
         console.log(`Fetching release data from Record Club page: ${reviewUrl}`);
         const response = await axios.get(reviewUrl, {
-            headers: {
-                'User-Agent': 'Discordbot/2.0; +https://discord.app',
-            },
+            headers: COMMON_HEADERS,
             timeout: 10000
         });
 
@@ -165,9 +171,7 @@ async function getUserAvatar(username: string): Promise<string | undefined> {
         console.log(`Fetching avatar for ${username} (Lightweight)...`);
         const url = `${BASE_URL}/${username}`;
         const response = await axios.get(url, {
-            headers: {
-                'User-Agent': 'Discordbot/2.0; +https://discord.app',
-            },
+            headers: COMMON_HEADERS,
             timeout: 5000
         });
 
@@ -194,9 +198,7 @@ export const scraper = {
             console.log(`Fetching RSS feed for ${username}...`);
             const rssUrl = `${BASE_URL}/${username}/reviews/rss`;
             const response = await axios.get(rssUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                },
+                headers: COMMON_HEADERS,
                 timeout: 15000
             });
 
