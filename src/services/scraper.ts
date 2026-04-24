@@ -19,8 +19,8 @@ async function fetchPage(url: string, timeout: number = 15000): Promise<string> 
         const response = await axios.post(`${flareSolverrUrl}/v1`, {
             cmd: 'request.get',
             url: url,
-            maxTimeout: timeout
-        });
+            maxTimeout: 60000 // Give FlareSolverr plenty of time to solve challenges
+        }, { timeout: 65000 }); // Slightly longer than maxTimeout
         
         if (response.data.status === 'ok') {
             return response.data.solution.response;
@@ -181,7 +181,7 @@ export async function getReleaseDataFromMusicBrainz(artist: string, album: strin
 }
 
 const avatarCache = new Map<string, { url: string, timestamp: number }>();
-const AVATAR_CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
+const AVATAR_CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 async function getUserAvatar(username: string): Promise<string | undefined> {
     const cached = avatarCache.get(username);
