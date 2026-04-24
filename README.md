@@ -11,6 +11,10 @@ A premium Discord bot for tracking and formatting album reviews from Record Club
 -   **Multi-List Routing**: Automatically identifies and routes reviews from the **1001 Albums** list and the **600 Discos Latinoamérica** list to specific channels.
 -   **Intelligent Fallback**: Uses the **MusicBrainz API** as a secondary backup for release years if direct scraping is unavailable.
 -   **Admin Commands**: Easy server configuration using `/setchannel` and the ability to link accounts for other users.
+-   **Duplicate Prevention**: Implements a robust content hashing system (SHA-256) to ensure that the same review is never posted twice, even if the source URL changes due to platform glitches.
+-   **Rich Text Support**: Automatically converts Record Club HTML formatting (bold, italic, underline, strike-through, and hyperlinks) into beautiful Discord Markdown.
+-   **Cloudflare Bypass (FlareSolverr)**: Optional support for **FlareSolverr** to solve JavaScript and Captcha challenges, allowing the bot to run reliably even on restricted networks like a Synology NAS.
+-   **Stealth Headers**: Mimics a modern web browser signature with unified headers to improve compatibility and reduce 403 Forbidden errors.
 
 ---
 
@@ -43,6 +47,9 @@ Create a `.env` file in the root directory:
 ```env
 DISCORD_TOKEN=your_bot_token_here
 GUILD_ID=your_guild_id_here (optional, for instant slash command updates)
+
+# Optional: FlareSolverr URL for bypassing Cloudflare
+# FLARESOLVERR_URL=http://localhost:8191
 ```
 
 ### 3. Installation & Deployment
@@ -96,4 +103,6 @@ GUILD_ID=your_guild_id_here (optional, for instant slash command updates)
 -   **Avatars**: Retrieves user avatars with specific square crop parameters (`?width=300&height=300`) to ensure perfect display in Discord.
 -   **Year Extraction**: Prioritizes direct scraping from Record Club album pages (headers, breadcrumbs, and "Release details") for maximum accuracy.
 -   **Metadata Fallback**: If Record Club is slow or the year is missing, the bot queries the **MusicBrainz API** as a robust secondary source.
--   **Database**: Uses a local SQLite database (`bot.db`) to store user links and album list data.
+-   **Duplicate Prevention**: Stores SHA-256 hashes of processed review content in the database. A periodic cleanup task prunes records older than 30 days.
+-   **Cloudflare Bypass**: Routes requests through a FlareSolverr instance if configured, using a headless browser to solve security challenges.
+-   **Database**: Uses a local SQLite database (`record_club.db`) to store user links, album list data, and processed review hashes.
