@@ -50,6 +50,9 @@ GUILD_ID=your_guild_id_here (optional, for instant slash command updates)
 
 # Optional: FlareSolverr URL for bypassing Cloudflare
 # FLARESOLVERR_URL=http://localhost:8191
+
+# Optional: Enable detailed debug logging (true/false)
+# DEBUG=false
 ```
 
 ### 3. Installation & Deployment

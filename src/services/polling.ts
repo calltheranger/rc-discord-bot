@@ -121,10 +121,16 @@ export const startPolling = (client: Client) => {
                 }
                 try {
                     const reviews = await scraper.getRecentReviews(user.record_club_username);
-                    if (reviews.length === 0) continue;
+                    if (process.env.DEBUG === 'true') console.log(`Debug: Found ${reviews.length} total reviews in feed for ${user.record_club_username}`);
+                    
+                    if (reviews.length === 0) {
+                        if (process.env.DEBUG === 'true') console.log(`Debug: Skipping ${user.record_club_username} because no reviews were found.`);
+                        continue;
+                    }
 
                     // Find index of the last review we processed
                     let lastIndex = reviews.findIndex(r => r.reviewUrl === user.last_review_url);
+                    if (process.env.DEBUG === 'true') console.log(`Debug: last_review_url for ${user.record_club_username} is "${user.last_review_url}". lastIndex in feed is ${lastIndex}`);
 
                     // CRITICAL: If last_review_url is null (newly linked user), we ONLY seed the DB
                     // and do NOT post old reviews to Discord.

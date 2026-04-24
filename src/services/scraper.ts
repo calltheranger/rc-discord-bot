@@ -216,10 +216,20 @@ export const scraper = {
             const userAvatar = await getUserAvatar(username);
             console.log(`Fetching RSS feed for ${username}...`);
             const rssUrl = `${BASE_URL}/${username}/reviews/rss`;
-            const data = await fetchPage(rssUrl, 15000);
+            let data = await fetchPage(rssUrl, 15000);
+
+            if (data.includes('<pre')) {
+                const $wrap = cheerio.load(data);
+                const preContent = $wrap('pre').text().trim();
+                if (preContent.includes('<rss') || preContent.includes('<item')) {
+                    if (process.env.DEBUG === 'true') console.log(`Debug Scraper: Extracted XML from <pre> tag for ${username}`);
+                    data = preContent;
+                }
+            }
 
             const $ = cheerio.load(data, { xmlMode: true });
             const items = $('item');
+            if (process.env.DEBUG === 'true') console.log(`Debug Scraper: "${username}" processed RSS feed length: ${data.length} chars. Found ${items.length} <item> tags.`);
             const reviews: Review[] = [];
 
             items.each((_, el) => {
