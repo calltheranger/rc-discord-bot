@@ -6,7 +6,7 @@ import { scraper, getReleaseDataFromMusicBrainz, getReleaseDataFromRecordClub } 
 import { User, Review } from '../types';
 import { formatStars, normalize } from '../utils/format';
 
-const POLLING_INTERVAL = 15 * 60 * 1000; // 15 minutes
+const POLLING_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
 
 interface TrackedAlbum {
@@ -280,6 +280,7 @@ export const startPolling = (client: Client) => {
             console.error('Error during global poll cycle:', error);
         } finally {
             cleanupProcessedReviews();
+            console.log('Polling cycle complete. Waiting 30 minutes...');
             isPolling = false;
         }
     };
