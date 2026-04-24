@@ -11,18 +11,40 @@ const COMMON_HEADERS = {
     'Referer': 'https://record.club/',
 };
 
+async function fetchPage(url: string, timeout: number = 15000): Promise<string> {
+    const flareSolverrUrl = process.env.FLARESOLVERR_URL;
+    
+    if (flareSolverrUrl) {
+        console.log(`Using FlareSolverr to fetch: ${url}`);
+        const response = await axios.post(`${flareSolverrUrl}/v1`, {
+            cmd: 'request.get',
+            url: url,
+            maxTimeout: timeout
+        });
+        
+        if (response.data.status === 'ok') {
+            return response.data.solution.response;
+        } else {
+            throw new Error(`FlareSolverr error: ${response.data.message}`);
+        }
+    } else {
+        const response = await axios.get(url, {
+            headers: COMMON_HEADERS,
+            timeout: timeout
+        });
+        return response.data;
+    }
+}
+
 import { formatStars, normalize } from '../utils/format';
 
 export async function getReleaseDataFromRecordClub(reviewUrl: string): Promise<{ year?: string, imageUrl?: string }> {
     let result: { year?: string, imageUrl?: string } = {};
     try {
         console.log(`Fetching release data from Record Club page: ${reviewUrl}`);
-        const response = await axios.get(reviewUrl, {
-            headers: COMMON_HEADERS,
-            timeout: 10000
-        });
+        const data = await fetchPage(reviewUrl, 10000);
 
-        const $ = cheerio.load(response.data);
+        const $ = cheerio.load(data);
         const rawImageUrl = $('meta[property="og:image"]').attr('content');
         result.imageUrl = rawImageUrl || undefined;
 
@@ -170,13 +192,10 @@ async function getUserAvatar(username: string): Promise<string | undefined> {
     try {
         console.log(`Fetching avatar for ${username} (Lightweight)...`);
         const url = `${BASE_URL}/${username}`;
-        const response = await axios.get(url, {
-            headers: COMMON_HEADERS,
-            timeout: 5000
-        });
+        const data = await fetchPage(url, 5000);
 
         // Match og:image or twitter:image
-        const match = response.data.match(/property="og:image" content="([^"]+)"/);
+        const match = data.match(/property="og:image" content="([^"]+)"/);
         if (match && match[1]) {
             // Append or replace query parameters to request a square 300x300 version
             // This prevents elongation in Discord by ensuring the CDN returns a square crop
@@ -197,12 +216,9 @@ export const scraper = {
             const userAvatar = await getUserAvatar(username);
             console.log(`Fetching RSS feed for ${username}...`);
             const rssUrl = `${BASE_URL}/${username}/reviews/rss`;
-            const response = await axios.get(rssUrl, {
-                headers: COMMON_HEADERS,
-                timeout: 15000
-            });
+            const data = await fetchPage(rssUrl, 15000);
 
-            const $ = cheerio.load(response.data, { xmlMode: true });
+            const $ = cheerio.load(data, { xmlMode: true });
             const items = $('item');
             const reviews: Review[] = [];
 
