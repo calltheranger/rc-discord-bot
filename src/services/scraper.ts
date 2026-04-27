@@ -248,11 +248,6 @@ export const scraper = {
                     const albumTitle = match[1];
                     const artistName = match[2];
 
-                    // Filter: Skip only Singles
-                    if (reviewUrl.includes('/releases/singles/')) {
-                        if (process.env.DEBUG === 'true') console.log(`Debug Scraper: Skipping single: ${albumTitle} by ${artistName} (${reviewUrl})`);
-                        return; // Skip this item
-                    }
 
                     const rating = match[3] || 'No rating';
 
