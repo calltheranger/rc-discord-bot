@@ -247,6 +247,13 @@ export const scraper = {
                 if (match) {
                     const albumTitle = match[1];
                     const artistName = match[2];
+
+                    // Filter: Skip only Singles
+                    if (reviewUrl.includes('/releases/singles/')) {
+                        if (process.env.DEBUG === 'true') console.log(`Debug Scraper: Skipping single: ${albumTitle} by ${artistName} (${reviewUrl})`);
+                        return; // Skip this item
+                    }
+
                     const rating = match[3] || 'No rating';
 
                     const $content = cheerio.load(contentEncoded);
@@ -271,10 +278,23 @@ export const scraper = {
                     });
                     $content('a').each((_, el) => {
                         const $el = $content(el);
-                        const href = $el.attr('href');
-                        const text = $el.html();
+                        let href = $el.attr('href');
+                        const text = $el.text().trim();
+                        const html = $el.html() || '';
+
                         if (href) {
-                            $el.replaceWith(`[${text}](${href})`);
+                            // Make relative URLs absolute
+                            if (href.startsWith('/')) {
+                                href = `${BASE_URL}${href}`;
+                            }
+
+                            // If the text is the same as the URL, or looks like a URL, 
+                            // just output the URL directly to avoid ugly [URL](URL) formatting
+                            if (text === href || text.startsWith('http')) {
+                                $el.replaceWith(href);
+                            } else {
+                                $el.replaceWith(`[${html}](${href})`);
+                            }
                         }
                     });
 
