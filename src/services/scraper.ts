@@ -13,27 +13,55 @@ const COMMON_HEADERS = {
 
 async function fetchPage(url: string, timeout: number = 15000): Promise<string> {
     const flareSolverrUrl = process.env.FLARESOLVERR_URL;
+    const maxAttempts = 3;
     
-    if (flareSolverrUrl) {
-        console.log(`Using FlareSolverr to fetch: ${url}`);
-        const response = await axios.post(`${flareSolverrUrl}/v1`, {
-            cmd: 'request.get',
-            url: url,
-            maxTimeout: 60000 // Give FlareSolverr plenty of time to solve challenges
-        }, { timeout: 65000 }); // Slightly longer than maxTimeout
-        
-        if (response.data.status === 'ok') {
-            return response.data.solution.response;
-        } else {
-            throw new Error(`FlareSolverr error: ${response.data.message}`);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            if (flareSolverrUrl) {
+                if (attempt > 1) {
+                    console.log(`Retrying FlareSolverr fetch for ${url} (Attempt ${attempt}/${maxAttempts})...`);
+                } else {
+                    console.log(`Using FlareSolverr to fetch: ${url}`);
+                }
+                const response = await axios.post(`${flareSolverrUrl}/v1`, {
+                    cmd: 'request.get',
+                    url: url,
+                    maxTimeout: 60000 // Give FlareSolverr plenty of time to solve challenges
+                }, { timeout: 65000 }); // Slightly longer than maxTimeout
+                
+                if (response.data.status === 'ok') {
+                    return response.data.solution.response;
+                } else {
+                    throw new Error(`FlareSolverr error: ${response.data.message}`);
+                }
+            } else {
+                if (attempt > 1) {
+                    console.log(`Retrying direct fetch for ${url} (Attempt ${attempt}/${maxAttempts})...`);
+                }
+                const response = await axios.get(url, {
+                    headers: COMMON_HEADERS,
+                    timeout: timeout
+                });
+                return response.data;
+            }
+        } catch (error: any) {
+            let errorMsg = error.message;
+            if (error.response && error.response.data) {
+                const fsMessage = error.response.data.message || JSON.stringify(error.response.data);
+                errorMsg = `FlareSolverr status ${error.response.status}: ${fsMessage}`;
+            }
+            
+            console.warn(`Attempt ${attempt}/${maxAttempts} failed for ${url}: ${errorMsg}`);
+            
+            if (attempt === maxAttempts) {
+                throw new Error(errorMsg);
+            }
+            
+            // Wait 3 seconds before next attempt
+            await new Promise(resolve => setTimeout(resolve, 3000));
         }
-    } else {
-        const response = await axios.get(url, {
-            headers: COMMON_HEADERS,
-            timeout: timeout
-        });
-        return response.data;
     }
+    throw new Error('Unexpected end of retry loop');
 }
 
 import { formatStars, normalize } from '../utils/format';
